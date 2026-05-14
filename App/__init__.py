@@ -1,21 +1,48 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
+
 from ShellCollect import ShellCommand, Port, Image, ShellCollect
 
-@dataclass(kw_only=True)
-class RoleApp:
-    ports: list[Port]
+# @dataclass(kw_only=True)
+# class PreferenceApp:
+#     type: str
+#     type_arg: str
+#     format: str
+#     value_raw: str = field(init=False)
+#     value: str = field(init=False)
+#
+#     def __post_init__(self):
+#         self.value_raw = self.value_raw.format(self.type_arg)
+#         self.value = self.format.format(self.value_raw)
 
 @dataclass(kw_only=True)
 class App:
     name: str
-    roles: dict[str, RoleApp]
+    role: RoleApp
+    preferences: dict[str, str] = field(default_factory=dict)
+
+@dataclass(kw_only=True)
+class RoleApp:
+    name: str
+    ports: list[Port]
+    preferences: dict[str, str] = field(default_factory=dict)
+
+@dataclass(kw_only=True)
+class ClusterApp:
+    name: str
     image: Image
+    preferences: dict[str, str] = field(default_factory=dict)
+    instances_app: list[App] = field(default_factory=list)
+    paths_to_templates: list[Path] = field(default_factory=list)
 
     def get_shell_install(self, user: str) -> list[ShellCommand]:
         shell = []
+        roles = {}
 
-        for role in self.roles:
-            shell = ShellCollect.open_ports(self.roles[role].ports, self.name + "___" + role)
+        for instance in self.instances_app:
+            if instance.role.name not in roles:
+                roles[instance.role.name] = 1
+                shell.extend(ShellCollect.open_ports(instance.role.ports, self.name + "___" + instance.role.name))
 
         shell.append(ShellCollect.download_image(self.image, user, self.name))
         return shell
