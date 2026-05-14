@@ -3,18 +3,6 @@ from pathlib import Path
 
 from ShellCollect import ShellCommand, Port, Image, ShellCollect
 
-# @dataclass(kw_only=True)
-# class PreferenceApp:
-#     type: str
-#     type_arg: str
-#     format: str
-#     value_raw: str = field(init=False)
-#     value: str = field(init=False)
-#
-#     def __post_init__(self):
-#         self.value_raw = self.value_raw.format(self.type_arg)
-#         self.value = self.format.format(self.value_raw)
-
 @dataclass(kw_only=True)
 class App:
     name: str
@@ -28,12 +16,19 @@ class RoleApp:
     preferences: dict[str, str] = field(default_factory=dict)
 
 @dataclass(kw_only=True)
+class ConfigFile:
+    paths_to_templates: Path
+    dest: str
+    owner: str
+    mode: str
+
+@dataclass(kw_only=True)
 class ClusterApp:
     name: str
     image: Image
     preferences: dict[str, str] = field(default_factory=dict)
     instances_app: list[App] = field(default_factory=list)
-    paths_to_templates: list[Path] = field(default_factory=list)
+    paths_to_templates: list[ConfigFile] = field(default_factory=list)
 
     def get_shell_install(self, user: str) -> list[ShellCommand]:
         shell = []

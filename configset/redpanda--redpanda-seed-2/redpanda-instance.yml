@@ -4,7 +4,7 @@ metadata:
   name: redpanda-credentials
 type: Opaque
 stringData:
-  SUPER_USER: "${cluster.preferences.admin_user}:${cluster.preferences.admin_pass}"
+  SUPER_USER: "cool_admin:tempPassword6512"
 
 ---
 
@@ -16,7 +16,7 @@ data:
   bootstrap.yaml: |
     enable_sasl: true
     superusers:
-      - ${cluster.preferences.admin_user}
+      - cool_admin
     sasl_mechanisms:
       - SCRAM
       - PLAIN
@@ -26,14 +26,14 @@ data:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: ${instance.name}
+  name: redpanda-seed-2
   annotations:
-    ad.datadoghq.com/my-app.logs: '[{"source": "infra", "service": "${instance.name}"}]'
+    ad.datadoghq.com/my-app.logs: '[{"source": "infra", "service": "redpanda-seed-2"}]'
 spec:
   restartPolicy: Always
   containers:
-    - name: ${instance.name}
-      image: ${cluster.image.registry}/${cluster.image.path}:${cluster.image.version}
+    - name: redpanda-seed-2
+      image: docker.io/redpandadata/redpanda:v25.3.7
       resources:
         requests:
           cpu: "3"
@@ -50,15 +50,10 @@ spec:
       ports:
         - containerPort: 19092
           hostPort: 19092
-          hostIP: ${node.private_ip}
+          hostIP: 10.1.0.15
         - containerPort: 33145
           hostPort: 33145
-          hostIP: ${node.private_ip}
-        % if role.name == 'first-seed':
-        - containerPort: 9644
-          hostPort: 9644
-          hostIP: ${node.private_ip}
-        % endif
+          hostIP: 10.1.0.15
       env:
         - name: RP_BOOTSTRAP_USER
           valueFrom:
@@ -73,15 +68,13 @@ spec:
         - --kafka-addr
         - 0.0.0.0:19092
         - --advertise-kafka-addr
-        - ${node.private_ip}:19092
+        - 10.1.0.15:19092
         - --rpc-addr
         - 0.0.0.0:33145
         - --advertise-rpc-addr
-        - ${node.private_ip}:33145
-        % if role.name == 'base-seed':
+        - 10.1.0.15:33145
         - --seeds
-        - ${apps['redpanda-master'].node.private_ip}:33145
-        % endif
+        - 10.1.0.16:33145
 
   volumes:
     - name: kafka-storage

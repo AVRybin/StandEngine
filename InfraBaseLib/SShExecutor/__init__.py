@@ -1,12 +1,17 @@
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
+from io import StringIO
 
 from paramiko import PKey
 from pyinfra.api import Config as infraConfig, Inventory, State as infraState
 from pyinfra.api.connect import connect_all, disconnect_all
 from pyinfra.api.operation import add_op
 from pyinfra.api.operations import run_ops
-from pyinfra.operations import server as op_server
+from pyinfra.operations import server as op_server, files
+
+class InfraOperation(Protocol):
+    operation: Callable[..., Any]
+    def build_kwargs(self, inventory: Inventory) -> dict[str, Any]: ...
 
 
 @dataclass(kw_only=True)
@@ -37,6 +42,33 @@ class ShellCommand:
         if self.user:
             kwargs["_sudo_user"] = self.user
 
+        return kwargs
+
+
+@dataclass(kw_only=True)
+class UploadFile:
+    name: str
+    content: str
+    dest: str
+    for_group: str
+    user: str
+    mode: str
+    operation: Callable[..., Any] = field(init=False)
+
+    def __post_init__(self):
+        self.operation = files.put
+
+    def build_kwargs(self, inventory: Inventory) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "name": self.name,
+            "src": StringIO(self.content),
+            "dest": self.dest,
+            "mode": self.mode,
+            "host": inventory.get_group(self.for_group),
+            "_sudo": True,
+        }
+        if self.user:
+            kwargs["user"] = self.user
         return kwargs
 
 
@@ -88,7 +120,7 @@ class SShExecutor:
             config=pyinfra_config,
         )
 
-    def run(self, operations: list[ShellCommand]) -> None:
+    def run(self, operations: list[InfraOperation]) -> None:
         connect_all(self.state)
 
         try:

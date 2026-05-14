@@ -6,7 +6,8 @@ from typing import Callable
 from mako.template import Template
 from box import Box
 
-from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor, ShellCommand
+from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor
+from InfraBaseLib.SShExecutor import InfraOperation, UploadFile
 from ShellCollect import ShellCollect
 from App import ClusterApp, App
 from StandFramework import ConfigBackend, StandState
@@ -47,6 +48,11 @@ class Node:
         self.machine = Server(location=location, type=type_serv, network=network, image=image)
 
 
+@dataclass(kw_only=True)
+class InstanceApp:
+    app: App
+    cluster: ClusterApp = None
+    node: Node = None
 
 
 @dataclass(kw_only=True)
@@ -69,16 +75,16 @@ class Stand:
     executor_shell: SShExecutor = field(default=None, init=False)
 
     nodes: dict[str, Node]
-    shell_script: list[ShellCommand] = field(default_factory=list, init=False)
+    shell_script: list[InfraOperation] = field(default_factory=list, init=False)
 
     clusters: InitVar[list[ClusterApp]] = None
     clusters_app: dict[str, ClusterApp] = field(default_factory=dict, init=False)
-    map_instance_app_to_node: dict[str, str] = field(default_factory=dict, init=False)
-    map_instance_app_to_cluster: dict[str, str] = field(default_factory=dict, init=False)
+    instance_apps: dict[str, InstanceApp] = field(default_factory=dict, init=False)
 
     APP_RUNTIME: str = "podman"
 
     def __post_init__(self, private_key: str, key_name_admin: str, clusters: list[ClusterApp]):
+        self.instance_apps = {}
         self.key = Keys(private=private_key)
         self.cloud_init = CloudInit.render(self.sudo_user, self.key.pub, self.app_user)
 
@@ -113,19 +119,22 @@ class Stand:
 
         for cluster_name, cluster in self.clusters_app.items():
             for instance in cluster.instances_app:
-                self.map_instance_app_to_cluster[instance.name] = cluster_name
+                self.instance_apps[instance.name] = InstanceApp(
+                    app = instance,
+                    cluster = cluster,
+                )
 
         for node_name, node in self.nodes.items():
             node.roles_app = {}
 
             for instance in node.instances_app:
-                cluster = self.map_instance_app_to_cluster[instance.name]
+                cluster = self.instance_apps[instance.name].cluster.name
                 roles = node.roles_app.setdefault(cluster, [])
 
                 if instance.role.name not in roles:
                     roles.append(instance.role.name)
 
-                self.map_instance_app_to_node[instance.name] = node_name
+                self.instance_apps[instance.name].node = node
 
 
     def destroy(self) -> None:
@@ -133,25 +142,33 @@ class Stand:
 
     def create_servers(self) -> None:
         result = self.provision.create(self.void_provision)
-        keys_inv = ""
 
         for name, node in self.nodes.items():
             public_ip = result.outputs.get(f"server_{name}_public_ip")
             private_ip = result.outputs.get(f"server_{name}_internal_ip")
 
             if public_ip is not None:
-                self.nodes[name].public_ip = public_ip.value
+                node.public_ip = public_ip.value
+            else:
+                raise Exception(f"Server {name} not found in outputs")
 
             if private_ip is not None:
-                self.nodes[name].private_ip = private_ip.value
+                node.private_ip = private_ip.value
                 keys_inv = private_ip.value
+            else:
+                raise Exception(f"Server {name} not found in outputs")
 
-            self.inventory.setdefault(keys_inv, []).append(self.nodes[name].app_runtime)
+            self.inventory.setdefault(keys_inv, []).append(node.app_runtime)
 
-            for app, roles in self.nodes[name].roles_app.items():
+            for app, roles in node.roles_app.items():
                 self.inventory[keys_inv].append(app)
                 for role in roles:
                     self.inventory[keys_inv].append(app + "___" + role)
+
+
+
+        for _, instance in self.instance_apps.items():
+            self.inventory[instance.node.private_ip].append(instance.cluster.name + "---" + instance.app.name)
 
         self.executor_shell = SShExecutor(user=self.sudo_user, key=self.key.pkey, server=self.inventory)
 
@@ -165,22 +182,30 @@ class Stand:
     def run_server_tasks(self) -> None:
         self.executor_shell.run(self.shell_script)
 
+    def clear_shell_script(self) -> None:
+        self.shell_script = []
+
     def render_deploy_configset(self) -> None:
         Path(self.path_folder_configset).mkdir(parents=True, exist_ok=True)
 
-        for instance, cluster in self.map_instance_app_to_cluster.items():
-            path = Path(self.path_folder_configset / f"{cluster}--{instance}")
+        for instance_name, instance in self.instance_apps.items():
+            path = Path(self.path_folder_configset / f"{instance.cluster.name}--{instance_name}")
             Path(path).mkdir(parents=True, exist_ok=True)
 
-            for path_temp_file in self.clusters_app[cluster].paths_to_templates:
-                node_name = self.map_instance_app_to_node[instance]
-                cluster = self.clusters_app[cluster]
-                curr_instance = next(n for n in cluster.instances_app if n.name == instance)
+            for configs_file in instance.cluster.paths_to_templates:
+                template = Template(filename=str(configs_file.paths_to_templates))
+                content = template.render(node=instance.node, instance=instance.app, role=instance.app.role,
+                                      cluster=replace(instance.cluster, preferences=Box(instance.cluster.preferences)),
+                                          apps=self.instance_apps)
+                self.shell_script.append(UploadFile(
+                    name="Upload config",
+                    content=content,
+                    dest=configs_file.dest,
+                    for_group=instance.cluster.name + "---" + instance.app.name,
+                    user=configs_file.owner,
+                    mode=configs_file.mode,
+                ))
 
-                template = Template(filename=str(path_temp_file))
-                content = template.render(node=self.nodes[node_name], instance=curr_instance, role=curr_instance.role,
-                                      cluster=replace(cluster, preferences=Box(cluster.preferences)))
 
-
-                with open(path / path_temp_file.name.removesuffix('.mako'), "w") as f:
+                with open(path / configs_file.paths_to_templates.name.removesuffix('.mako'), "w") as f:
                     f.write(content)
