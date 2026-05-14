@@ -1,4 +1,8 @@
-from helpers.base_helpers import BaseHelpers
+import sys
+
+from SShExecutor import SShExecutor
+from helpers.cloud_init import CloudInit
+from helpers.ssh_key import SShKey
 from config.config import Config
 from metal_provision.provision import MetalProvision
 
@@ -6,13 +10,21 @@ from server_designer.designer import ServersDesigner
 from server_designer.server import Server
 
 config = Config()
+AUTH_KEY = SShKey.BASE_DIR / "auth_key"
 
-priv, pub = BaseHelpers.generate_ssh_key()
-print(priv)
-print(pub)
+if AUTH_KEY.exists():
+    with open(AUTH_KEY, "r") as f:
+        priv = f.read()
 
-#pub = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDQw07Filf8ik2UOZbCpi1TJV+QG8snQFmABrQcrl70GYFFSK7n9VXkJqkdWEqzG6t2F3v9Oe/vWqKE+EVlBUwaayXVuXNoLD6u3bsx6lX1bbZeYPNDDtIa/x/la6Gk7g69EHaGbGucI6FnDjUZVMzinprOkBbtkL5bPH/cQ0YFTOVcn4d8RM3WcxeN07n9TJsKimbb1g3MMi59rnd9P0AzzIIje18Ko4LAK06Q3Ng0Z0Ku2PJQ5AEPsx96L6IjJgg6GvC/C0XFRfVPilzWAPoJwWd3T/ZWbf0ZDC+wIwJJ2xnmwI3xDvLa6fL4lDZThIgZmbwTcjggqhLe35djft43CX2qQWkKVZNDLbygyKY72DO/AsWEUzqtewwX1+PXPJpzF0tJc/q95csXSpilgJD5jeolgppUzMdWrYFqJrpS54clJIGZdY1bKzfiNaHp5eysaHvydwpyriCZyScimPiI57fHO14l1JQhISn6YXbnlBuzadIVCO5WM1QjUCO5Lf8="
-cloud_init = BaseHelpers.render_cloud_init("av.rybin", pub, "userapp")
+    pub = SShKey.get_public_key_from_private(priv)
+else:
+    priv, pub = SShKey.generate_ssh_key()
+    with open(AUTH_KEY, "w") as f:
+        f.write(priv)
+
+APP_USER = "userapp"
+APP_HOME = f"/home/{APP_USER}"
+cloud_init = CloudInit.render("av.rybin", pub, APP_USER)
 
 provision = MetalProvision(
     s3_bucket=config.s3.bucket,
@@ -43,5 +55,43 @@ servers = {
 
 program_for_provision = designer.get_program(servers)
 
-result = provision.destroy(program_for_provision)
-#print(result.outputs.get("server_test-server_internal_ip"))
+if len(sys.argv) > 1 and sys.argv[1] == "destroy":
+    provision.destroy(program_for_provision)
+    sys.exit(0)
+
+result = provision.create(program_for_provision)
+ip_server = result.outputs.get("server_test-server_internal_ip")
+print(ip_server.value)
+
+pkey = SShKey.get_paramiko_key(priv)
+
+executorSSH = SShExecutor(
+    user="av.rybin",
+    key=pkey,
+    servers=[ip_server.value],
+)
+
+executorSSH.run(
+    [
+        SShExecutor.get_shell_command(
+            name=f"Enable linger for {APP_USER}", user="", sudo=True, full_login=False,
+            cmd=f"loginctl show-user {APP_USER} --property=Linger "
+                f"| grep -q '^Linger=yes$' "
+                f"|| loginctl enable-linger {APP_USER}",
+        ),
+        SShExecutor.get_shell_command(
+            name=f"Create Podman config dirs for {APP_USER}", user="", sudo=True, full_login=False,
+            cmd=f"install -d "
+                f"-o {APP_USER} "
+                f"-g $(id -gn {APP_USER}) "
+                f"-m 700 "
+                f"{APP_HOME}/.config "
+                f"{APP_HOME}/.config/containers "
+                f"{APP_HOME}/.config/containers/systemd",
+        ),
+        SShExecutor.get_shell_command(
+            name="Create Podman network app-net", user=APP_USER, sudo=True, full_login=True,
+            cmd="podman network exists app-net || podman network create app-net",
+        ),
+    ],
+)
