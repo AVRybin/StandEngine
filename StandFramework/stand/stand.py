@@ -2,8 +2,11 @@ from dataclasses import dataclass, field, InitVar
 from paramiko import PKey
 from typing import Callable
 
-from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor
+from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor, ShellCommand
+from ShellCollect import ShellCollect
+from App import App
 from StandFramework import ConfigBackend, StandState
+
 
 @dataclass(kw_only=True)
 class Keys:
@@ -30,6 +33,7 @@ class Node:
 
     machine: Server = field(init=False)
     app_runtime: str
+    apps: dict[str, list[str]] = field(default_factory=dict)
 
     public_ip: str = field(init=False)
     private_ip: str = field(init=False)
@@ -59,6 +63,9 @@ class Stand:
     executor_shell: SShExecutor = field(default=None, init=False)
 
     nodes: dict[str, Node]
+    shell_script: list[ShellCommand] = field(default_factory=list, init=False)
+
+    APP_RUNTIME: str = "podman"
 
     def __post_init__(self, private_key: str, key_name_admin: str):
         self.key = Keys(private=private_key)
@@ -95,8 +102,9 @@ class Stand:
     def destroy(self) -> None:
         self.provision.destroy(self.void_provision)
 
-    def create(self) -> None:
+    def create_servers(self) -> None:
         result = self.provision.create(self.void_provision)
+        keys_inv = ""
 
         for name, node in self.nodes.items():
             public_ip = result.outputs.get(f"server_{name}_public_ip")
@@ -107,6 +115,22 @@ class Stand:
 
             if private_ip is not None:
                 self.nodes[name].private_ip = private_ip.value
-                self.inventory.setdefault(private_ip.value, []).append(self.nodes[name].app_runtime)
+                keys_inv = private_ip.value
+
+            self.inventory.setdefault(keys_inv, []).append(self.nodes[name].app_runtime)
+
+            for app, roles in self.nodes[name].apps.items():
+                self.inventory[keys_inv].append(app)
+                for role in roles:
+                    self.inventory[keys_inv].append(app + "___" + role)
 
         self.executor_shell = SShExecutor(user=self.sudo_user, key=self.key.pkey, server=self.inventory)
+
+    def settings_runtime(self) -> None:
+        self.shell_script.extend(ShellCollect.setting_podman_app_runtime(self.app_user, self.APP_RUNTIME))
+
+    def add_app_install(self, app: App) -> None:
+        self.shell_script.extend(app.get_shell_install(self.app_user))
+
+    def run_server_tasks(self) -> None:
+        self.executor_shell.run(self.shell_script)
