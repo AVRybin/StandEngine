@@ -1,17 +1,8 @@
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-class HCloudSettings(BaseModel):
-    token: str
 
-class S3Settings(BaseModel):
-    access_key: str
-    secret_key: str
-    region: str
-    endpoint: str
-    bucket: str
-
-class PulumiSettings(BaseModel):
+class StandSettings(BaseModel):
     user: str
     passphrase: str
     project_name: str
@@ -26,6 +17,4 @@ class Config(BaseSettings):
         extra="ignore",
     )
 
-    hcloud: HCloudSettings
-    s3: S3Settings
-    stand: PulumiSettings
+    stand: StandSettings

@@ -4,7 +4,12 @@ from typing import Callable
 import pulumi
 import pulumi_hcloud as hcloud
 
-from server_designer.server import Server
+@dataclass(kw_only=True)
+class Server:
+    location: str
+    type: str
+    network: str
+    image: str
 
 @dataclass(kw_only=True)
 class ServersDesigner:
@@ -40,5 +45,6 @@ class ServersDesigner:
                 )
 
                 pulumi.export(f"server_{name}_internal_ip", curr_server.networks[0].ip)
+                pulumi.export(f"server_{name}_public_ip", curr_server.ipv4_address)
 
         return program
