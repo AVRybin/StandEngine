@@ -28,7 +28,7 @@ class ClusterApp:
     image: Image
     preferences: dict[str, str] = field(default_factory=dict)
     instances_app: list[App] = field(default_factory=list)
-    paths_to_templates: list[ConfigFile] = field(default_factory=list)
+    paths_to_templates: dict[str, ConfigFile] = field(default_factory=list)
 
     def get_shell_install(self, user: str) -> list[ShellCommand]:
         shell = []

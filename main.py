@@ -40,11 +40,11 @@ redpanda = ClusterApp(
     ),
     instances_app=[instance_master, instance_seed_1, instance_seed_2],
     preferences={"admin_pass": "tempPassword6512", "admin_user": "cool_admin"},
-    paths_to_templates=[ConfigFile(
+    paths_to_templates={"pod": ConfigFile(
         paths_to_templates=Path(__file__).parent / "redpanda-instance.yml.mako",
         dest="/home/userapp/redpanda-instance.yml",
         owner="userapp",
-        mode="644")],
+        mode="644")},
 )
 
 stand_project = StandState(owner=config.stand.user, passphrase=config.stand.passphrase,
@@ -85,4 +85,6 @@ print(stand.nodes["master-server"].private_ip)
 stand.render_deploy_configset()
 stand.settings_runtime()
 stand.add_app_install()
+stand.launch_apps()
+
 stand.run_server_tasks()

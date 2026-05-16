@@ -192,7 +192,7 @@ class Stand:
             path = Path(self.path_folder_configset / f"{instance.cluster.name}--{instance_name}")
             Path(path).mkdir(parents=True, exist_ok=True)
 
-            for configs_file in instance.cluster.paths_to_templates:
+            for _,configs_file in instance.cluster.paths_to_templates.items():
                 template = Template(filename=str(configs_file.paths_to_templates))
                 content = template.render(node=instance.node, instance=instance.app, role=instance.app.role,
                                       cluster=replace(instance.cluster, preferences=Box(instance.cluster.preferences)),
@@ -209,3 +209,20 @@ class Stand:
 
                 with open(path / configs_file.paths_to_templates.name.removesuffix('.mako'), "w") as f:
                     f.write(content)
+
+    def launch_apps(self) -> None:
+        for _, instance in self.instance_apps.items():
+            self.shell_script.extend(ShellCollect.up_container(
+                instance.app.name,
+                "app-net",
+                instance.cluster.paths_to_templates["pod"].dest,
+                self.app_user,
+                instance.cluster.name + "---" + instance.app.name,
+            ))
+
+            self.shell_script.extend(ShellCollect.wait_current_app(
+                instance.app.name,
+                instance.app.role.ports,
+                self.app_user,
+                instance.cluster.name + "---" + instance.app.name,
+            ))

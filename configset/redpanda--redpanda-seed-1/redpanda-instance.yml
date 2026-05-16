@@ -74,7 +74,7 @@ spec:
         - --advertise-rpc-addr
         - 10.1.0.11:33145
         - --seeds
-        - 10.1.0.16:33145
+        - 10.1.0.15:33145
 
   volumes:
     - name: kafka-storage
