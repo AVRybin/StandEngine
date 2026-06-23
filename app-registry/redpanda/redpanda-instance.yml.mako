@@ -4,7 +4,7 @@ metadata:
   name: redpanda-credentials
 type: Opaque
 stringData:
-  SUPER_USER: "cool_admin:tempPassword6512"
+  SUPER_USER: "${cluster.preferences.admin_user}:${cluster.preferences.admin_pass}"
 
 ---
 
@@ -16,7 +16,7 @@ data:
   bootstrap.yaml: |
     enable_sasl: true
     superusers:
-      - cool_admin
+      - ${cluster.preferences.admin_user}
     sasl_mechanisms:
       - SCRAM
       - PLAIN
@@ -26,21 +26,21 @@ data:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: redpanda-seed-1
+  name: ${instance.name}
   annotations:
-    ad.datadoghq.com/my-app.logs: '[{"source": "infra", "service": "redpanda-seed-1"}]'
+    ad.datadoghq.com/my-app.logs: '[{"source": "infra", "service": "${instance.name}"}]'
 spec:
   restartPolicy: Always
   containers:
-    - name: redpanda-seed-1
-      image: docker.io/redpandadata/redpanda:v25.3.7
+    - name: ${instance.name}
+      image: ${cluster.image.registry}/${cluster.image.path}:${cluster.image.version}
       resources:
         requests:
-          cpu: "3"
-          memory: "6Gi"
+          cpu: "1"
+          memory: "3Gi"
         limits:
-          cpu: "3"
-          memory: "6Gi"
+          cpu: "1"
+          memory: "3Gi"
       volumeMounts:
         - name: kafka-storage
           mountPath: /var/lib/redpanda/data
@@ -50,10 +50,15 @@ spec:
       ports:
         - containerPort: 19092
           hostPort: 19092
-          hostIP: 10.1.0.11
+          hostIP: ${node.private_ip}
         - containerPort: 33145
           hostPort: 33145
-          hostIP: 10.1.0.11
+          hostIP: ${node.private_ip}
+        % if role.name == 'first-seed':
+        - containerPort: 9644
+          hostPort: 9644
+          hostIP: ${node.private_ip}
+        % endif
       env:
         - name: RP_BOOTSTRAP_USER
           valueFrom:
@@ -68,13 +73,15 @@ spec:
         - --kafka-addr
         - 0.0.0.0:19092
         - --advertise-kafka-addr
-        - 10.1.0.11:19092
+        - ${node.private_ip}:19092
         - --rpc-addr
         - 0.0.0.0:33145
         - --advertise-rpc-addr
-        - 10.1.0.11:33145
+        - ${node.private_ip}:33145
+        % if role.name == 'base-seed':
         - --seeds
-        - 10.1.0.15:33145
+        - ${apps['redpanda-master'].node.private_ip}:33145
+        % endif
 
   volumes:
     - name: kafka-storage

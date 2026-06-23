@@ -7,6 +7,7 @@ from ShellCollect import ShellCommand, Port, Image, ShellCollect
 class App:
     name: str
     role: RoleApp
+    hook_path: Path | None = None
     preferences: dict[str, str] = field(default_factory=dict)
 
 @dataclass(kw_only=True)

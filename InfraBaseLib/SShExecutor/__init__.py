@@ -73,6 +73,33 @@ class UploadFile:
 
 
 @dataclass(kw_only=True)
+class EnsureDirectory:
+    name: str
+    path: str
+    for_group: str
+    user: str = ""
+    mode: str = "755"
+    sudo: bool = True
+    operation: Callable[..., Any] = field(init=False)
+
+    def __post_init__(self):
+        self.operation = files.directory
+
+    def build_kwargs(self, inventory: Inventory) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "name": self.name,
+            "path": self.path,
+            "present": True,
+            "mode": self.mode,
+            "host": inventory.get_group(self.for_group),
+            "_sudo": self.sudo,
+        }
+        if self.user:
+            kwargs["user"] = self.user
+        return kwargs
+
+
+@dataclass(kw_only=True)
 class SShExecutor:
     user: str
     key: PKey

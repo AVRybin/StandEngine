@@ -26,8 +26,14 @@ class MetalProvision:
     stack: Optional[auto.Stack] = field(init=False, default=None)
 
     def build_s3_url(self) -> str:
-        endpoint = self.s3_endpoint
-        endpoint = endpoint.removeprefix("https://").removeprefix("http://")
+        endpoint = self.s3_endpoint.strip()
+        if not endpoint:
+            raise ValueError("S3 endpoint is required")
+
+        if "://" not in endpoint:
+            endpoint = f"https://{endpoint}"
+
+        endpoint = endpoint.rstrip("/")
 
         query = {
             "region": self.s3_region,
@@ -50,6 +56,22 @@ class MetalProvision:
             return "<unknown>"
 
         return urn.split("::")[-1]
+
+    @staticmethod
+    def ensure_pulumi_cli_installed() -> None:
+        try:
+            auto.PulumiCommand()
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "Pulumi CLI binary was not found in PATH. Install Pulumi CLI "
+                "and make sure the process running this project can execute "
+                "'pulumi'."
+            ) from None
+        except Exception as exc:
+            raise RuntimeError(
+                "Pulumi CLI check failed. Check the Pulumi CLI installation "
+                f"and environment. Details: {exc}"
+            ) from None
 
     IGNORED_RESOURCE_TYPES = frozenset({
         "pulumi:pulumi:Stack",
@@ -106,6 +128,8 @@ class MetalProvision:
             print(f"[pulumi:event-handler-warning] {exc}")
 
     def init_stack(self, server_program: Callable[[], None]) -> None:
+        self.ensure_pulumi_cli_installed()
+
         self.stack = auto.create_or_select_stack(
             stack_name=self.stand_name,
             project_name=self.project_name,

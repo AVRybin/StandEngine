@@ -1,13 +1,14 @@
 from dataclasses import dataclass, field, InitVar, replace
 from pathlib import Path
+import re
 
 from paramiko import PKey
 from typing import Callable
 from mako.template import Template
 from box import Box
 
-from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor
-from InfraBaseLib.SShExecutor import InfraOperation, UploadFile
+from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor, ShellCommand
+from InfraBaseLib.SShExecutor import InfraOperation, UploadFile, EnsureDirectory
 from ShellCollect import ShellCollect
 from App import ClusterApp, App
 from StandFramework import ConfigBackend, StandState
@@ -104,17 +105,6 @@ class Stand:
             provider_token=self.backend.hcloud.token,
         )
 
-        designer = ServersDesigner(
-            ssh_admin_name=key_name_admin,
-            user_data=self.cloud_init,
-        )
-
-        servers_for_provision = {}
-        for name, node in self.nodes.items():
-            servers_for_provision[name] = node.machine
-
-        self.void_provision = designer.get_program(servers_for_provision)
-
         self.clusters_app = {cluster.name: cluster for cluster in clusters}
 
         for cluster_name, cluster in self.clusters_app.items():
@@ -135,6 +125,40 @@ class Stand:
                     roles.append(instance.role.name)
 
                 self.instance_apps[instance.name].node = node
+
+            node.machine.labels = self.build_node_labels(node)
+
+        designer = ServersDesigner(
+            ssh_admin_name=key_name_admin,
+            user_data=self.cloud_init,
+        )
+
+        servers_for_provision = {}
+        for name, node in self.nodes.items():
+            servers_for_provision[name] = node.machine
+
+        self.void_provision = designer.get_program(servers_for_provision)
+
+    def build_node_labels(self, node: Node) -> dict[str, str]:
+        labels = {
+            "stand_name": self.sanitize_label_value(self.state.env),
+            "stand_owner": self.sanitize_label_value(self.state.owner),
+            "project": self.sanitize_label_value(self.state.project),
+        }
+
+        for instance in node.instances_app:
+            labels[self.sanitize_label_key(instance.name)] = ""
+
+        return labels
+
+    @staticmethod
+    def sanitize_label_value(value: str) -> str:
+        normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value)).strip("_.-")
+        return normalized or "unknown"
+
+    @classmethod
+    def sanitize_label_key(cls, value: str) -> str:
+        return cls.sanitize_label_value(value).lower()
 
 
     def destroy(self) -> None:
@@ -185,6 +209,16 @@ class Stand:
     def clear_shell_script(self) -> None:
         self.shell_script = []
 
+    def render_app_template(self, template_path: Path, instance: InstanceApp) -> str:
+        template = Template(filename=str(template_path))
+        return template.render(
+            node=instance.node,
+            instance=instance.app,
+            role=instance.app.role,
+            cluster=replace(instance.cluster, preferences=Box(instance.cluster.preferences)),
+            apps=self.instance_apps,
+        )
+
     def render_deploy_configset(self) -> None:
         Path(self.path_folder_configset).mkdir(parents=True, exist_ok=True)
 
@@ -193,10 +227,7 @@ class Stand:
             Path(path).mkdir(parents=True, exist_ok=True)
 
             for _,configs_file in instance.cluster.paths_to_templates.items():
-                template = Template(filename=str(configs_file.paths_to_templates))
-                content = template.render(node=instance.node, instance=instance.app, role=instance.app.role,
-                                      cluster=replace(instance.cluster, preferences=Box(instance.cluster.preferences)),
-                                          apps=self.instance_apps)
+                content = self.render_app_template(configs_file.paths_to_templates, instance)
                 self.shell_script.append(UploadFile(
                     name="Upload config",
                     content=content,
@@ -209,6 +240,69 @@ class Stand:
 
                 with open(path / configs_file.paths_to_templates.name.removesuffix('.mako'), "w") as f:
                     f.write(content)
+
+    def add_app_hook(self, instance: InstanceApp) -> None:
+        if instance.app.hook_path is None:
+            return
+
+        hook_path = Path(instance.app.hook_path)
+        if not hook_path.is_dir():
+            raise Exception(f"Hook path is not a directory: {hook_path}")
+
+        hook_sh = hook_path / "hook.sh.mako"
+        if not hook_sh.is_file():
+            raise Exception(f"Hook path must contain hook.sh.mako: {hook_sh}")
+
+        for_group = instance.cluster.name + "---" + instance.app.name
+        remote_hook_base_dir = f"/home/{self.app_user}/hook"
+        remote_hook_dir = f"{remote_hook_base_dir}/{instance.app.name}"
+        local_hook_dir = Path(self.path_folder_configset / f"{instance.cluster.name}--{instance.app.name}" / "hook")
+        Path(local_hook_dir).mkdir(parents=True, exist_ok=True)
+
+        self.shell_script.append(EnsureDirectory(
+            name="Create hook base directory",
+            path=remote_hook_base_dir,
+            for_group=for_group,
+            user=self.app_user,
+            mode="755",
+        ))
+
+        self.shell_script.append(EnsureDirectory(
+            name=f"Create hook directory {instance.app.name}",
+            path=remote_hook_dir,
+            for_group=for_group,
+            user=self.app_user,
+            mode="755",
+        ))
+
+        for template_path in sorted(path for path in hook_path.rglob("*") if path.is_file()):
+            relative_path = template_path.relative_to(hook_path)
+            if relative_path.name.endswith(".mako"):
+                relative_path = relative_path.with_name(relative_path.name.removesuffix(".mako"))
+
+            content = self.render_app_template(template_path, instance)
+            output_path = local_hook_dir / relative_path
+            Path(output_path.parent).mkdir(parents=True, exist_ok=True)
+            with open(output_path, "w") as f:
+                f.write(content)
+
+            self.shell_script.append(UploadFile(
+                name=f"Upload hook file {relative_path.as_posix()}",
+                content=content,
+                dest=f"{remote_hook_dir}/{relative_path.as_posix()}",
+                for_group=for_group,
+                user=self.app_user,
+                mode="644",
+            ))
+
+        self.shell_script.append(ShellCommand(
+            name=f"Run hook {instance.app.name}",
+            cmd=f"cd ~/hook/{instance.app.name} && chmod +x hook.sh && ./hook.sh && rm -rf ~/hook/{instance.app.name}",
+            for_group=for_group,
+            user=self.app_user,
+            sudo=True,
+            full_login=True,
+        ))
 
     def launch_apps(self) -> None:
         for _, instance in self.instance_apps.items():
@@ -226,3 +320,5 @@ class Stand:
                 self.app_user,
                 instance.cluster.name + "---" + instance.app.name,
             ))
+
+            self.add_app_hook(instance)

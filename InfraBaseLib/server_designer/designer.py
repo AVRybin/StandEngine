@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 import pulumi
@@ -10,6 +10,7 @@ class Server:
     type: str
     network: str
     image: str
+    labels: dict[str, str] = field(default_factory=dict)
 
 @dataclass(kw_only=True)
 class ServersDesigner:
@@ -39,6 +40,7 @@ class ServersDesigner:
                     ssh_keys=[self.ssh_admin_name],
                     networks=[network_args],
                     user_data=user_data,
+                    labels=server.labels,
                     opts=pulumi.ResourceOptions(
                         ignore_changes=["user_data"],
                     ),

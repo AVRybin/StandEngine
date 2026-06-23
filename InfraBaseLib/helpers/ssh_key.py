@@ -1,5 +1,4 @@
 import io
-from pathlib import Path
 
 import paramiko
 from cryptography.hazmat.primitives import serialization
