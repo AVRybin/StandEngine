@@ -104,6 +104,18 @@ class ShellCollect:
 
         return commands
 
+    @staticmethod
+    def wait_cloud_init(role: str) -> ShellCommand:
+        return ShellCommand(
+            name="Wait cloud-init complete",
+            user="",
+            sudo=True,
+            full_login=False,
+            for_group=role,
+            cmd="cloud-init status --wait",
+            success_exit_codes=[0,2]
+        )
+
 
     @staticmethod
     def open_ports(ports: list[Port], role: str) -> list[ShellCommand]:
@@ -150,6 +162,7 @@ class ShellCollect:
     def setting_podman_app_runtime(user: str, role: str) -> list[ShellCommand]:
         app_home = f"/home/{user}"
         return [
+            ShellCollect.wait_cloud_init(role),
             ShellCommand(
                 name=f"Enable linger for {user}", user="", sudo=True, full_login=False,
                 for_group=role,

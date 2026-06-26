@@ -22,6 +22,7 @@ class ShellCommand:
     user: str = ""
     sudo: bool = False
     full_login: bool = False
+    success_exit_codes: list[int] = field(default_factory=lambda: [0])
 
     operation: Callable[..., Any] = field(init=False)
 
@@ -36,6 +37,7 @@ class ShellCommand:
             ],
             "_sudo": self.sudo,
             "_use_sudo_login": self.full_login,
+            "_success_exit_codes": self.success_exit_codes,
             "host": inventory.get_group(self.for_group),
         }
 

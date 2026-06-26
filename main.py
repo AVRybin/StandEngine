@@ -119,7 +119,7 @@ stand_project = StandState(owner=config.stand.user, passphrase=config.stand.pass
 baseServer = dict(
     location="hel1",
     type_serv="cpx32",
-    image="357704314",
+    image="rocky-10",
     network="network-p2p",
     app_runtime=APP_RUNTIME,
 )
