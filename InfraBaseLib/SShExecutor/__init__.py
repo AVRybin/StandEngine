@@ -1,12 +1,15 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 from io import StringIO
+from datetime import datetime
+from time import perf_counter
 
 from paramiko import PKey
 from pyinfra.api import Config as infraConfig, Inventory, State as infraState
 from pyinfra.api.connect import connect_all, disconnect_all
 from pyinfra.api.operation import add_op
 from pyinfra.api.operations import run_ops
+from pyinfra.api.state import BaseStateCallback
 from pyinfra.operations import server as op_server, files
 
 class InfraOperation(Protocol):
@@ -101,6 +104,85 @@ class EnsureDirectory:
         return kwargs
 
 
+class PyinfraDiagnostic(BaseStateCallback):
+    start_time: dict[tuple[str, str], float]
+
+    def __init__(self):
+        self.start_time = {}
+
+    def operation_host_start(self, state: infraState, host: Any, op_hash: str):
+        if op_hash not in state.ops[host]:
+            return
+
+        self.start_time[(host.name, op_hash)] = perf_counter()
+        self.print_event("start", state, host, op_hash)
+
+    def operation_host_success(self, state: infraState, host: Any, op_hash: str, retry_count: int = 0):
+        self.print_event("success", state, host, op_hash, retry_count=retry_count)
+
+    def operation_host_error(
+        self,
+        state: infraState,
+        host: Any,
+        op_hash: str,
+        retry_count: int = 0,
+        max_retries: int = 0,
+    ):
+        self.print_event(
+            "error",
+            state,
+            host,
+            op_hash,
+            retry_count=retry_count,
+            max_retries=max_retries,
+        )
+
+    def operation_host_retry(self, state: infraState, host: Any, op_hash: str, retry_num: int, max_retries: int):
+        self.print_event(
+            "retry",
+            state,
+            host,
+            op_hash,
+            retry_count=retry_num,
+            max_retries=max_retries,
+        )
+
+    def print_event(
+        self,
+        status: str,
+        state: infraState,
+        host: Any,
+        op_hash: str,
+        retry_count: int = 0,
+        max_retries: int = 0,
+    ):
+        op_meta = state.get_op_meta(op_hash)
+        op_name = ", ".join(sorted(op_meta.names)) or "Operation"
+        now = datetime.now().isoformat(timespec="milliseconds")
+
+        parts = [
+            f"[pyinfra-diagnostic]",
+            f"time={now}",
+            f"status={status}",
+            f"host={host.name}",
+            f"order={'.'.join(str(item) for item in op_meta.op_order)}",
+            f"operation={op_name!r}",
+        ]
+
+        start_time = self.start_time.get((host.name, op_hash))
+        if start_time is not None and status in ["success", "error"]:
+            parts.append(f"duration_ms={int((perf_counter() - start_time) * 1000)}")
+            del self.start_time[(host.name, op_hash)]
+
+        if retry_count:
+            parts.append(f"retry={retry_count}")
+
+        if max_retries:
+            parts.append(f"max_retries={max_retries}")
+
+        print(" ".join(parts))
+
+
 @dataclass(kw_only=True)
 class SShExecutor:
     user: str
@@ -149,7 +231,10 @@ class SShExecutor:
             config=pyinfra_config,
         )
 
-    def run(self, operations: list[InfraOperation]) -> None:
+    def run(self, operations: list[InfraOperation], diagnostic: bool = False) -> None:
+        if diagnostic:
+            self.state.add_callback_handler(PyinfraDiagnostic())
+
         connect_all(self.state)
 
         try:

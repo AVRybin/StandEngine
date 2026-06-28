@@ -203,8 +203,8 @@ class Stand:
         for _, cluster in self.clusters_app.items():
             self.shell_script.extend(cluster.get_shell_install(self.app_user))
 
-    def run_server_tasks(self) -> None:
-        self.executor_shell.run(self.shell_script)
+    def run_server_tasks(self, diagnostic: bool = False) -> None:
+        self.executor_shell.run(self.shell_script, diagnostic=diagnostic)
 
     def clear_shell_script(self) -> None:
         self.shell_script = []

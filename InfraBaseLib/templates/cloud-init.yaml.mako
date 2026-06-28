@@ -55,7 +55,9 @@ runcmd:
   - systemctl enable --now firewalld
   - sshd -t && systemctl restart ssh 2>/dev/null || systemctl restart sshd
 
-  - wget https://github.com/containers/podlet/releases/download/v0.3.2/podlet-x86_64-unknown-linux-gnu.tar.xz
+  - >
+    wget --connect-timeout=10 --read-timeout=15 --tries=5 --waitretry=5 --retry-connrefused -c
+    https://hel1.your-objectstorage.com/file-upload/podlet/0.3.2/podlet-x86_64-unknown-linux-gnu.tar.xz
   - tar -xJf podlet-x86_64-unknown-linux-gnu.tar.xz
   - mv ./podlet-x86_64-unknown-linux-gnu/podlet /usr/bin/podlet
   - rm -rf podlet-x86_64-unknown-linux-gnu*

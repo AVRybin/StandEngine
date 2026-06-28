@@ -1,4 +1,7 @@
-from dataclasses import dataclass
+import base64
+from dataclasses import dataclass, field
+from shlex import quote
+
 from InfraBaseLib import ShellCommand
 
 @dataclass(kw_only=True)
@@ -8,10 +11,21 @@ class Port:
     zone: str
 
 @dataclass(kw_only=True)
+class ImageRegistry:
+    url: str
+    username: str | None = None
+    password: str | None = None
+    insecure: bool = False
+
+@dataclass(kw_only=True)
 class Image:
     path: str
     version: str
-    registry: str
+    registry: ImageRegistry
+    full_name: str = field(init=False)
+
+    def __post_init__(self):
+        self.full_name = f"{self.registry.url}/{self.path}:{self.version}"
 
 class ShellCollect:
     @staticmethod
@@ -20,16 +34,61 @@ class ShellCollect:
                 "export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus;")
 
     @staticmethod
-    def download_image(image: Image, user: str, role: str) -> ShellCommand:
-        image_name = f"{image.registry}/{image.path}:{image.version}"
-        return ShellCommand(
+    def download_image(image: Image, user: str, role: str) -> list[ShellCommand]:
+        image_name = image.full_name
+        registry = image.registry
+        tls_verify = " --tls-verify=false" if registry.insecure else ""
+
+        if bool(registry.username) != bool(registry.password):
+            raise ValueError("Both image username and password must be set for registry authentication")
+
+        if registry.username and registry.password:
+            username_b64 = base64.b64encode(registry.username.encode("utf-8")).decode("ascii")
+            password_b64 = base64.b64encode(registry.password.encode("utf-8")).decode("ascii")
+
+            return [
+                ShellCommand(
+                    name=f"Login to Podman registry {registry.url}",
+                    user=user,
+                    sudo=True,
+                    full_login=True,
+                    for_group=role,
+                    cmd=(
+                        f"printf '%s' {quote(password_b64)} | base64 -d "
+                        f"| podman login {quote(registry.url)} "
+                        f"--username \"$(printf '%s' {quote(username_b64)} | base64 -d)\" "
+                        f"--password-stdin{tls_verify}"
+                    ),
+                ),
+                ShellCommand(
+                    name=f"Download Podman image {image_name}",
+                    user=user,
+                    sudo=True,
+                    full_login=True,
+                    for_group=role,
+                    cmd=f"podman image exists {image_name} || podman pull{tls_verify} {image_name}",
+                ),
+                ShellCommand(
+                    name=f"Logout from Podman registry {registry.url}",
+                    user=user,
+                    sudo=True,
+                    full_login=True,
+                    for_group=role,
+                    cmd=f"podman logout {registry.url}",
+                ),
+            ]
+
+        return [ShellCommand(
                 name=f"Download Podman image {image_name}",
                 user=user,
                 sudo=True,
                 full_login=True,
                 for_group=role,
-                cmd=f"podman image exists {image_name} || podman pull {image_name}",
-            )
+                cmd=(
+                    f"podman image exists {image_name} "
+                    f"|| podman pull{tls_verify} {image_name}"
+                ),
+            )]
 
     @staticmethod
     def up_container(name_app: str, network: str, path_to_manifest: str, user: str, role: str) -> list[ShellCommand]:

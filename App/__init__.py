@@ -40,5 +40,5 @@ class ClusterApp:
                 roles[instance.role.name] = 1
                 shell.extend(ShellCollect.open_ports(instance.role.ports, self.name + "___" + instance.role.name))
 
-        shell.append(ShellCollect.download_image(self.image, user, self.name))
+        shell.extend(ShellCollect.download_image(self.image, user, self.name))
         return shell

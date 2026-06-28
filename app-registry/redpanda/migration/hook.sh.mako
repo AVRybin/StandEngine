@@ -6,6 +6,7 @@ RPK_PASS="${cluster.preferences.admin_pass}"
 RPK="podman exec ${instance.name}-${instance.name} rpk"
 <%text>
 AUTH="-X user=${RPK_USER} -X pass=${RPK_PASS} -X sasl.mechanism=PLAIN"
+
 # ===== Config =====
 
 CONFIG_MAP_FILE="${CONFIG_MAP_FILE:-${ACL_MAP_FILE:-./acl-map.sh}}"
@@ -13,6 +14,27 @@ CONFIG_MAP_FILE="${CONFIG_MAP_FILE:-${ACL_MAP_FILE:-./acl-map.sh}}"
 # shellcheck source=/dev/null
 source "$CONFIG_MAP_FILE"
 ACL_REPLACE="${ACL_REPLACE:-false}"
+
+# How many rpk calls to run concurrently. Each call is mostly network wait,
+# so 8 is a safe default; tune via env if needed.
+MAX_PROCS="${MAX_PROCS:-8}"
+# Set VERBOSE=true to run the final topic/user/acl listing.
+VERBOSE="${VERBOSE:-false}"
+
+# Failure flag shared across background jobs.
+FAIL_FLAG="$(mktemp)"
+cleanup() { rm -f "$FAIL_FLAG"; }
+trap cleanup EXIT
+
+mark_fail() { echo 1 >>"$FAIL_FLAG"; }
+any_failed() { [[ -s "$FAIL_FLAG" ]]; }
+
+# Block until a job slot frees up. Uses `wait -n` (bash 4.3+).
+throttle() {
+  while (( $(jobs -rp | wc -l) >= MAX_PROCS )); do
+    wait -n 2>/dev/null || break
+  done
+}
 
 is_exists_error() {
   local msg="$1"
@@ -135,59 +157,96 @@ ensure_acl() {
   echo "ACL topic User:$user:$resource:$operations:$pattern: ensured"
 }
 
-# ===== Topics =====
+# --- Per-item wrappers so each can run as a background job ---
 
-for topic in "${!TOPICS[@]}"; do
+create_topic() {
+  local topic="$1"
+  local partitions replication retention min_isr
   IFS=':' read -r partitions replication retention min_isr <<< "${TOPICS[$topic]}"
   run_or_skip_exists "Topic $topic" $RPK topic create "$topic" \
     --partitions "$partitions" \
     --replicas "$replication" \
     --topic-config "retention.ms=$retention" \
     --topic-config "min.insync.replicas=$min_isr" \
-    $AUTH || exit 1
-done
+    $AUTH || mark_fail
+}
 
-# ===== Users =====
-
-for user in "${!USERS[@]}"; do
+create_user() {
+  local user="$1"
   echo "Creating user: $user"
   run_or_skip_exists "User $user" $RPK security user create "$user" \
     -p "${USERS[$user]}" \
     --mechanism SCRAM-SHA-256 \
-    $AUTH || exit 1
-done
+    $AUTH || mark_fail
+}
 
-# ===== ACLs =====
-
-for user in "${!ACL_GROUP_RULES[@]}"; do
+apply_group_rules() {
+  local user="$1"
+  local -a rules=()
+  local rule resource pattern operations
   IFS=';' read -r -a rules <<< "${ACL_GROUP_RULES[$user]}"
   for rule in "${rules[@]}"; do
     IFS=':' read -r resource pattern operations <<< "$rule"
     echo "Setting group ACL for User:$user -> $resource ($pattern)"
-    ensure_acl "group" "$user" "$resource" "$operations" "$pattern" || exit 1
+    ensure_acl "group" "$user" "$resource" "$operations" "$pattern" || mark_fail
   done
-done
+}
 
-for user in "${!ACL_TOPIC_RULES[@]}"; do
+apply_topic_rules() {
+  local user="$1"
+  local -a rules=()
+  local rule resource pattern operations
   IFS=';' read -r -a rules <<< "${ACL_TOPIC_RULES[$user]}"
   for rule in "${rules[@]}"; do
     IFS=':' read -r resource pattern operations <<< "$rule"
     echo "Setting topic ACL for User:$user -> $resource ($pattern)"
-    ensure_acl "topic" "$user" "$resource" "$operations" "$pattern" || exit 1
+    ensure_acl "topic" "$user" "$resource" "$operations" "$pattern" || mark_fail
   done
+}
+
+# ===== Wave 1: topics + users (independent of each other) =====
+
+for topic in "${!TOPICS[@]}"; do
+  throttle
+  create_topic "$topic" &
 done
 
-# ===== Verify =====
+for user in "${!USERS[@]}"; do
+  throttle
+  create_user "$user" &
+done
 
-echo ""
-echo "=== Topics ==="
-$RPK topic list $AUTH
+wait
+any_failed && { echo "Topic/user creation had failures" >&2; exit 1; }
 
-echo ""
-echo "=== Users ==="
-$RPK security user list $AUTH
+# ===== Wave 2: ACLs =====
 
-echo ""
-echo "=== ACLs ==="
-$RPK acl list $AUTH
+for user in "${!ACL_GROUP_RULES[@]}"; do
+  throttle
+  apply_group_rules "$user" &
+done
+
+for user in "${!ACL_TOPIC_RULES[@]}"; do
+  throttle
+  apply_topic_rules "$user" &
+done
+
+wait
+any_failed && { echo "ACL creation had failures" >&2; exit 1; }
+
+# ===== Verify (opt-in) =====
+
+if [[ "$VERBOSE" == "true" ]]; then
+  echo ""
+  echo "=== Topics ==="
+  $RPK topic list $AUTH
+
+  echo ""
+  echo "=== Users ==="
+  $RPK security user list $AUTH
+
+  echo ""
+  echo "=== ACLs ==="
+  $RPK acl list $AUTH
+fi
 </%text>

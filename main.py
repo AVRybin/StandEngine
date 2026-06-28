@@ -5,7 +5,7 @@ from dataclasses import replace
 from config.config import Config
 
 from StandFramework import Stand, StandState, Node
-from ShellCollect import Port, Image
+from ShellCollect import Port, Image, ImageRegistry
 from App import App, RoleApp, ClusterApp, ConfigFile
 
 config = Config()
@@ -17,6 +17,12 @@ if AUTH_KEY.exists():
         key = f.read()
 
 APP_RUNTIME = "podman"
+local_registry = ImageRegistry(
+    url="10.1.0.11",
+    username="robot$builder",
+    password="ou1x3vGhd351WwdaotZK5pP0obkJxE5J",
+    insecure=True
+)
 portBase = Port(
     number=19092,
     protocol="tcp",
@@ -38,9 +44,9 @@ instance_seed_2 = App(role=role_seed, name="redpanda-seed-2")
 redpanda = ClusterApp(
     name="redpanda",
     image=Image(
-        path="redpandadata/redpanda",
+        path="infra_depence/redpandadata/redpanda",
         version="v25.3.7",
-        registry="docker.io"
+        registry=local_registry,
     ),
     instances_app=[instance_master, instance_seed_1, instance_seed_2],
     preferences={"admin_pass": "tempPassword6512", "admin_user": "cool_admin"},
@@ -59,9 +65,9 @@ password_for_ui = bcrypt.hashpw("12345678".encode("utf-8"), bcrypt.gensalt()).de
 kafka_ui = ClusterApp(
     name="kafka-ui",
     image=Image(
-        path="kafbat/kafka-ui",
+        path="infra_depence/kafbat/kafka-ui",
         version="v1.4.2",
-        registry="docker.io"
+        registry=local_registry,
     ),
     instances_app=[instance_ui],
     preferences={"admin_user": "cool_admin_ui", "admin_pass_bcrypt": password_for_ui},
@@ -78,9 +84,9 @@ instance_master_redis = App(role=role_master_redis, name="master-redis")
 redis = ClusterApp(
     name="redis",
     image=Image(
-        path="redis",
+        path="infra_depence/redis",
         version="7.4.0-alpine3.20",
-        registry="docker.io"
+        registry=local_registry,
     ),
     instances_app=[instance_master_redis],
     preferences={"admin_user": "cool_admin_ui", "admin_pass": "12345678"},
@@ -99,9 +105,9 @@ key_for_mongo = base64.b64encode(secrets.token_bytes(764)).decode("ascii")
 mongo = ClusterApp(
     name="mongo",
     image=Image(
-        path="mongo",
+        path="infra_depence/mongo",
         version="7.0.18-rc0",
-        registry="docker.io"
+        registry=local_registry,
     ),
     instances_app=[mongo_instance],
     preferences={"admin_user": "cool_admin_ui", "admin_pass": "12345678", "replica_set_key": key_for_mongo,
@@ -155,4 +161,4 @@ stand.settings_runtime()
 stand.add_app_install()
 stand.launch_apps()
 
-stand.run_server_tasks()
+stand.run_server_tasks(diagnostic=True)

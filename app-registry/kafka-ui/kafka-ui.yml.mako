@@ -45,7 +45,7 @@ spec:
   restartPolicy: OnFailure
   containers:
     - name: ${instance.name}
-      image: ${cluster.image.registry}/${cluster.image.path}:${cluster.image.version}
+      image: ${cluster.image.full_name}
       volumeMounts:
         - name: config-volume
           mountPath: /etc/kafkaui/dynamic_config.yaml

@@ -50,7 +50,7 @@ spec:
 
   containers:
     - name: ${instance.name}
-      image: ${cluster.image.registry}/${cluster.image.path}:${cluster.image.version}
+      image: ${cluster.image.full_name}
 
       resources:
         requests:
@@ -116,4 +116,3 @@ spec:
     - name: redis-acl
       emptyDir:
         medium: Memory
-
