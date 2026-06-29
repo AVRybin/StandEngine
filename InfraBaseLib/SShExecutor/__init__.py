@@ -4,7 +4,11 @@ from InfraBaseLib.SShExecutor.executor import (
     InfraOperation,
     SShExecutor,
     ShellCommand,
-    UploadFile,
+)
+from InfraBaseLib.SShExecutor.uploder import (
+    UploadAsset,
+    UploadBinaryFile,
+    UploadFilesCollector,
 )
 
 __all__ = [
@@ -14,5 +18,7 @@ __all__ = [
     "SShExecutor",
     "SShExecutorDiagnostArgs",
     "ShellCommand",
-    "UploadFile",
+    "UploadAsset",
+    "UploadBinaryFile",
+    "UploadFilesCollector",
 ]

@@ -204,6 +204,48 @@ apply_topic_rules() {
   done
 }
 
+# ===== Wave 0 =====
+
+expected_brokers=3
+for spec in "${TOPICS[@]}"; do
+  IFS=':' read -r _ replication _ _ <<< "$spec"
+  (( replication > expected_brokers )) && expected_brokers="$replication"
+done
+EXPECTED_BROKERS="${EXPECTED_BROKERS:-$expected_brokers}"
+READY_TIMEOUT="${READY_TIMEOUT:-120}"
+READY_INTERVAL="${READY_INTERVAL:-2}"
+
+wait_for_cluster() {
+  local deadline=$(( SECONDS + READY_TIMEOUT ))
+  local health controller node_ids brokers
+  while (( SECONDS < deadline )); do
+    health="$($RPK cluster health $AUTH 2>/dev/null)" || health=""
+
+    controller="$(grep -iE 'Controller ID' <<<"$health" | grep -oE '\-?[0-9]+' | head -1)"
+
+    # "All nodes:  [0 1 2]" -> вытащить содержимое скобок и посчитать id
+    node_ids="$(grep -iE 'All nodes' <<<"$health" | sed -nE 's/.*\[([^]]*)\].*/\1/p')"
+    if [[ -n "$node_ids" ]]; then
+      brokers=$(wc -w <<<"$node_ids")
+    else
+      brokers=0
+    fi
+
+    if grep -qiE 'Healthy:[[:space:]]*true' <<<"$health" \
+       && [[ -n "$controller" && "$controller" != "-1" ]] \
+       && (( brokers >= EXPECTED_BROKERS )); then
+      echo "Cluster ready: healthy, controller=$controller, brokers=$brokers"
+      return 0
+    fi
+    echo "Waiting for cluster… (have brokers=$brokers, need $EXPECTED_BROKERS)"
+    sleep "$READY_INTERVAL"
+  done
+  echo "Cluster not ready within ${READY_TIMEOUT}s (brokers=$brokers, controller=$controller)" >&2
+  return 1
+}
+
+wait_for_cluster || exit 1
+
 # ===== Wave 1: topics + users (independent of each other) =====
 
 for topic in "${!TOPICS[@]}"; do

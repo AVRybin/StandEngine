@@ -8,7 +8,7 @@ from mako.template import Template
 from box import Box
 
 from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor, ShellCommand
-from InfraBaseLib.SShExecutor import InfraOperation, UploadFile, EnsureDirectory, SShExecutorDiagnostArgs
+from InfraBaseLib.SShExecutor import InfraOperation, UploadAsset, SShExecutorDiagnostArgs
 from ShellCollect import ShellCollect
 from App import ClusterApp, App
 from StandFramework import ConfigBackend, StandState
@@ -73,6 +73,7 @@ class Stand:
     provision: MetalProvision = field(init=False)
     void_provision: Callable[[], None] = field(init=False)
     inventory: dict[str, list[str]] = field(default_factory=dict, init=False)
+    node_groups: dict[str, str] = field(default_factory=dict, init=False)
     executor_shell: SShExecutor = field(default=None, init=False)
 
     nodes: dict[str, Node]
@@ -182,7 +183,10 @@ class Stand:
             else:
                 raise Exception(f"Server {name} not found in outputs")
 
+            node_group = f"node---{name}"
+            self.node_groups[name] = node_group
             self.inventory.setdefault(keys_inv, []).append(node.app_runtime)
+            self.inventory[keys_inv].append(node_group)
 
             for app, roles in node.roles_app.items():
                 self.inventory[keys_inv].append(app)
@@ -203,11 +207,36 @@ class Stand:
         for _, cluster in self.clusters_app.items():
             self.shell_script.extend(cluster.get_shell_install(self.app_user))
 
+    def build_preflight_operations(self) -> list[InfraOperation]:
+        return [
+            ShellCollect.wait_cloud_init(self.APP_RUNTIME),
+        ]
+
     def run_server_tasks(self, diagnostic: bool | SShExecutorDiagnostArgs = False) -> None:
-        self.executor_shell.run(self.shell_script, diagnostic=diagnostic)
+        self.executor_shell.run(
+            self.shell_script,
+            diagnostic=diagnostic,
+            app_user=self.app_user,
+            preflight_operations=self.build_preflight_operations(),
+        )
 
     def clear_shell_script(self) -> None:
         self.shell_script = []
+        if self.executor_shell is not None:
+            self.executor_shell.clear_upload_files()
+
+    def node_group_for_instance(self, instance: InstanceApp) -> str:
+        for node_name, node in self.nodes.items():
+            if node is instance.node:
+                return self.node_groups[node_name]
+
+        raise ValueError(f"Node group not found for instance {instance.app.name}")
+
+    def add_upload_asset(self, instance: InstanceApp, asset: UploadAsset) -> None:
+        if self.executor_shell is None:
+            raise RuntimeError("create_servers must be called before adding upload assets")
+
+        self.executor_shell.add_upload_asset(self.node_group_for_instance(instance), asset)
 
     def render_app_template(self, template_path: Path, instance: InstanceApp) -> str:
         template = Template(filename=str(template_path))
@@ -228,12 +257,10 @@ class Stand:
 
             for _,configs_file in instance.cluster.paths_to_templates.items():
                 content = self.render_app_template(configs_file.paths_to_templates, instance)
-                self.shell_script.append(UploadFile(
-                    name="Upload config",
+                self.add_upload_asset(instance, UploadAsset(
                     content=content,
                     dest=configs_file.dest,
-                    for_group=instance.cluster.name + "---" + instance.app.name,
-                    user=configs_file.owner,
+                    owner=configs_file.owner,
                     mode=configs_file.mode,
                 ))
 
@@ -254,26 +281,9 @@ class Stand:
             raise Exception(f"Hook path must contain hook.sh.mako: {hook_sh}")
 
         for_group = instance.cluster.name + "---" + instance.app.name
-        remote_hook_base_dir = f"/home/{self.app_user}/hook"
-        remote_hook_dir = f"{remote_hook_base_dir}/{instance.app.name}"
+        remote_hook_dir = f"/home/{self.app_user}/hook/{instance.app.name}"
         local_hook_dir = Path(self.path_folder_configset / f"{instance.cluster.name}--{instance.app.name}" / "hook")
         Path(local_hook_dir).mkdir(parents=True, exist_ok=True)
-
-        self.shell_script.append(EnsureDirectory(
-            name="Create hook base directory",
-            path=remote_hook_base_dir,
-            for_group=for_group,
-            user=self.app_user,
-            mode="755",
-        ))
-
-        self.shell_script.append(EnsureDirectory(
-            name=f"Create hook directory {instance.app.name}",
-            path=remote_hook_dir,
-            for_group=for_group,
-            user=self.app_user,
-            mode="755",
-        ))
 
         for template_path in sorted(path for path in hook_path.rglob("*") if path.is_file()):
             relative_path = template_path.relative_to(hook_path)
@@ -286,12 +296,10 @@ class Stand:
             with open(output_path, "w") as f:
                 f.write(content)
 
-            self.shell_script.append(UploadFile(
-                name=f"Upload hook file {relative_path.as_posix()}",
+            self.add_upload_asset(instance, UploadAsset(
                 content=content,
                 dest=f"{remote_hook_dir}/{relative_path.as_posix()}",
-                for_group=for_group,
-                user=self.app_user,
+                owner=self.app_user,
                 mode="644",
             ))
 

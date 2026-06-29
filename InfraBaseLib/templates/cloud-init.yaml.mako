@@ -43,6 +43,7 @@ ssh_pwauth: false
 packages:
   - firewalld
   - podman
+  - zstd
 
 runcmd:
   - firewall-offline-cmd --new-zone=public || true

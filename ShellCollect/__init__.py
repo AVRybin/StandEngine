@@ -221,7 +221,6 @@ class ShellCollect:
     def setting_podman_app_runtime(user: str, role: str) -> list[ShellCommand]:
         app_home = f"/home/{user}"
         return [
-            ShellCollect.wait_cloud_init(role),
             ShellCommand(
                 name=f"Enable linger for {user}", user="", sudo=True, full_login=False,
                 for_group=role,

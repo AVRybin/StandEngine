@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from io import StringIO
 from typing import Any, Callable, Protocol
 
 from paramiko import PKey
@@ -10,6 +9,7 @@ from pyinfra.api.operations import run_ops
 from pyinfra.operations import files, server as op_server
 
 from InfraBaseLib.SShExecutor.diagnostic import PyinfraDiagnostic, SShExecutorDiagnostArgs
+from InfraBaseLib.SShExecutor.uploder import UploadAsset, UploadFilesCollector
 
 
 class InfraOperation(Protocol):
@@ -52,33 +52,6 @@ class ShellCommand:
 
 
 @dataclass(kw_only=True)
-class UploadFile:
-    name: str
-    content: str
-    dest: str
-    for_group: str
-    user: str
-    mode: str
-    operation: Callable[..., Any] = field(init=False)
-
-    def __post_init__(self):
-        self.operation = files.put
-
-    def build_kwargs(self, inventory: Inventory) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {
-            "name": self.name,
-            "src": StringIO(self.content),
-            "dest": self.dest,
-            "mode": self.mode,
-            "host": inventory.get_group(self.for_group),
-            "_sudo": True,
-        }
-        if self.user:
-            kwargs["user"] = self.user
-        return kwargs
-
-
-@dataclass(kw_only=True)
 class EnsureDirectory:
     name: str
     path: str
@@ -111,6 +84,7 @@ class SShExecutor:
     key: PKey
     server: dict[str, list[str]]
     state: infraState = field(init=False)
+    uploader: UploadFilesCollector = field(default_factory=UploadFilesCollector, init=False)
 
     def __post_init__(self):
         host_data = {
@@ -153,10 +127,18 @@ class SShExecutor:
             config=pyinfra_config,
         )
 
+    def add_upload_asset(self, node_group: str, asset: UploadAsset) -> None:
+        self.uploader.add_upload_asset(node_group, asset)
+
+    def clear_upload_files(self) -> None:
+        self.uploader.clear_upload_files()
+
     def run(
         self,
         operations: list[InfraOperation],
         diagnostic: bool | SShExecutorDiagnostArgs = False,
+        app_user: str = "",
+        preflight_operations: list[InfraOperation] | None = None,
     ) -> None:
         if isinstance(diagnostic, SShExecutorDiagnostArgs):
             self.state.add_callback_handler(
@@ -167,6 +149,14 @@ class SShExecutor:
             )
         elif diagnostic:
             self.state.add_callback_handler(PyinfraDiagnostic())
+
+        if self.uploader.upload_files:
+            if not app_user:
+                raise ValueError("app_user is required to upload files archive")
+            operations = self.uploader.build_upload_archive_operations(app_user) + operations
+
+        if preflight_operations:
+            operations = preflight_operations + operations
 
         connect_all(self.state)
 
