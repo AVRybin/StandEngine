@@ -181,46 +181,41 @@ class ShellCollect:
         if not ports:
             return []
 
-        commands = [
-            ShellCommand(
-                name="Ensure firewalld is running", user="", sudo=True, full_login=False,
-                for_group=role,
-                cmd="systemctl enable --now firewalld",
-            ),
-        ]
+        commands = ["changed=0"]
 
         for port in ports:
             port_spec = f"{port.number}/{port.protocol}"
             commands.append(
-                ShellCommand(
-                    name=f"Open {port_spec} in firewalld zone {port.zone}",
-                    user="",
-                    sudo=True,
-                    full_login=False,
-                    for_group=role,
-                    cmd=f"firewall-cmd --permanent "
-                        f"--zone={port.zone} "
-                        f"--query-port={port_spec} "
-                        f"|| firewall-cmd --permanent "
-                        f"--zone={port.zone} "
-                        f"--add-port={port_spec}",
-                ),
+                f"{{ firewall-cmd --permanent "
+                f"--zone={port.zone} "
+                f"--query-port={port_spec} "
+                f"|| {{ firewall-cmd --permanent "
+                f"--zone={port.zone} "
+                f"--add-port={port_spec}; changed=1; }}"
+                f"; }}"
             )
 
-        commands.append(
-            ShellCommand(
-                name="Reload firewalld", user="", sudo=True, full_login=False,
-                for_group=role,
-                cmd="firewall-cmd --reload",
-            ),
-        )
+        commands.append('{ [ "$changed" -eq 0 ] || firewall-cmd --reload; }')
+        ports_label = ", ".join(f"{port.number}/{port.protocol}:{port.zone}" for port in ports)
 
-        return commands
+        return [
+            ShellCommand(
+                name=f"Open firewalld ports {ports_label}", user="", sudo=True, full_login=False,
+                for_group=role,
+                cmd=" && ".join(commands),
+            ),
+        ]
 
     @staticmethod
     def setting_podman_app_runtime(user: str, role: str) -> list[ShellCommand]:
         app_home = f"/home/{user}"
         return [
+            ShellCommand(
+                name="Ensure firewalld is running", user="", sudo=True, full_login=False,
+                for_group=role,
+                cmd="systemctl is-enabled --quiet firewalld || systemctl enable firewalld; "
+                    "systemctl is-active --quiet firewalld || systemctl start firewalld",
+            ),
             ShellCommand(
                 name=f"Enable linger for {user}", user="", sudo=True, full_login=False,
                 for_group=role,
