@@ -8,7 +8,7 @@ from mako.template import Template
 from box import Box
 
 from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor, ShellCommand
-from InfraBaseLib.SShExecutor import InfraOperation, UploadFile, EnsureDirectory
+from InfraBaseLib.SShExecutor import InfraOperation, UploadFile, EnsureDirectory, SShExecutorDiagnostArgs
 from ShellCollect import ShellCollect
 from App import ClusterApp, App
 from StandFramework import ConfigBackend, StandState
@@ -203,7 +203,7 @@ class Stand:
         for _, cluster in self.clusters_app.items():
             self.shell_script.extend(cluster.get_shell_install(self.app_user))
 
-    def run_server_tasks(self, diagnostic: bool = False) -> None:
+    def run_server_tasks(self, diagnostic: bool | SShExecutorDiagnostArgs = False) -> None:
         self.executor_shell.run(self.shell_script, diagnostic=diagnostic)
 
     def clear_shell_script(self) -> None:
