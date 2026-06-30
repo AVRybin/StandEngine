@@ -9,7 +9,7 @@ from box import Box
 
 from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor, ShellCommand
 from InfraBaseLib.SShExecutor import InfraOperation, UploadAsset, SShExecutorDiagnostArgs
-from ShellCollect import ShellCollect, Port, Image
+from ShellCollect import ShellCollect, Port, Image, ImageRegistry
 from App import ClusterApp, App
 from StandFramework import ConfigBackend, StandState
 
@@ -82,6 +82,7 @@ class Stand:
     clusters: InitVar[list[ClusterApp]] = None
     clusters_app: dict[str, ClusterApp] = field(default_factory=dict, init=False)
     instance_apps: dict[str, InstanceApp] = field(default_factory=dict, init=False)
+    _registries: dict[str, ImageRegistry] = field(default_factory=dict, init=False)
 
     APP_RUNTIME: str = "podman"
 
@@ -109,6 +110,13 @@ class Stand:
         self.clusters_app = {cluster.name: cluster for cluster in clusters}
 
         for cluster_name, cluster in self.clusters_app.items():
+            registry = cluster.image.registry
+            current_registry = self._registries.get(registry.url)
+            if current_registry is not None and current_registry != registry:
+                raise ValueError(f"Registry {registry.url} has conflicting configuration")
+
+            self._registries[registry.url] = registry
+
             for instance in cluster.instances_app:
                 self.instance_apps[instance.name] = InstanceApp(
                     app = instance,
@@ -207,6 +215,7 @@ class Stand:
         shell = []
         ports: dict[tuple[int, str, str], Port] = {}
         images: dict[str, Image] = {}
+        registries: dict[str, ImageRegistry] = {}
 
         for instance in node.instances_app:
             for port in instance.role.ports:
@@ -214,11 +223,22 @@ class Stand:
 
             cluster = self.instance_apps[instance.name].cluster
             images[cluster.image.full_name] = cluster.image
+            registries[cluster.image.registry.url] = self._registries[cluster.image.registry.url]
 
         shell.extend(ShellCollect.open_ports(list(ports.values()), node_group))
 
-        for image in images.values():
+        node_images = list(images.values())
+        node_registries = list(registries.values())
+        login_command = ShellCollect.login_registries(node_registries, self.app_user, node_group)
+        if login_command is not None:
+            shell.append(login_command)
+
+        for image in node_images:
             shell.extend(ShellCollect.download_image(image, self.app_user, node_group))
+
+        logout_command = ShellCollect.logout_registries(node_registries, self.app_user, node_group)
+        if logout_command is not None:
+            shell.append(logout_command)
 
         return shell
 

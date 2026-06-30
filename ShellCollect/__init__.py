@@ -34,61 +34,76 @@ class ShellCollect:
                 "export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus;")
 
     @staticmethod
-    def download_image(image: Image, user: str, role: str) -> list[ShellCommand]:
-        image_name = image.full_name
-        registry = image.registry
-        tls_verify = " --tls-verify=false" if registry.insecure else ""
+    def login_registries(registries: list[ImageRegistry], user: str, role: str) -> ShellCommand | None:
+        commands = []
 
-        if bool(registry.username) != bool(registry.password):
-            raise ValueError("Both image username and password must be set for registry authentication")
+        for registry in registries:
+            if bool(registry.username) != bool(registry.password):
+                raise ValueError("Both image username and password must be set for registry authentication")
 
-        if registry.username and registry.password:
+            if not registry.username or not registry.password:
+                continue
+
+            tls_verify = " --tls-verify=false" if registry.insecure else ""
             username_b64 = base64.b64encode(registry.username.encode("utf-8")).decode("ascii")
             password_b64 = base64.b64encode(registry.password.encode("utf-8")).decode("ascii")
+            commands.append(
+                f"printf '%s' {quote(password_b64)} | base64 -d "
+                f"| podman login {quote(registry.url)} "
+                f"--username \"$(printf '%s' {quote(username_b64)} | base64 -d)\" "
+                f"--password-stdin{tls_verify}"
+            )
 
-            return [
-                ShellCommand(
-                    name=f"Login to Podman registry {registry.url}",
-                    user=user,
-                    sudo=True,
-                    full_login=True,
-                    for_group=role,
-                    cmd=(
-                        f"printf '%s' {quote(password_b64)} | base64 -d "
-                        f"| podman login {quote(registry.url)} "
-                        f"--username \"$(printf '%s' {quote(username_b64)} | base64 -d)\" "
-                        f"--password-stdin{tls_verify}"
-                    ),
-                ),
-                ShellCommand(
-                    name=f"Download Podman image {image_name}",
-                    user=user,
-                    sudo=True,
-                    full_login=True,
-                    for_group=role,
-                    cmd=f"podman image exists {image_name} || podman pull{tls_verify} {image_name}",
-                ),
-                ShellCommand(
-                    name=f"Logout from Podman registry {registry.url}",
-                    user=user,
-                    sudo=True,
-                    full_login=True,
-                    for_group=role,
-                    cmd=f"podman logout {registry.url}",
-                ),
-            ]
+        if not commands:
+            return None
 
-        return [ShellCommand(
+        return ShellCommand(
+            name="Login to Podman registries",
+            user=user,
+            sudo=True,
+            full_login=True,
+            for_group=role,
+            cmd=" && ".join(commands),
+        )
+
+    @staticmethod
+    def logout_registries(registries: list[ImageRegistry], user: str, role: str) -> ShellCommand | None:
+        commands = []
+
+        for registry in registries:
+            if bool(registry.username) != bool(registry.password):
+                raise ValueError("Both image username and password must be set for registry authentication")
+
+            if registry.username and registry.password:
+                commands.append(f"podman logout {quote(registry.url)}")
+
+        if not commands:
+            return None
+
+        return ShellCommand(
+            name="Logout from Podman registries",
+            user=user,
+            sudo=True,
+            full_login=True,
+            for_group=role,
+            cmd=" && ".join(commands),
+        )
+
+    @staticmethod
+    def download_image(image: Image, user: str, role: str) -> list[ShellCommand]:
+        image_name = image.full_name
+        tls_verify = " --tls-verify=false" if image.registry.insecure else ""
+
+        return [
+            ShellCommand(
                 name=f"Download Podman image {image_name}",
                 user=user,
                 sudo=True,
                 full_login=True,
                 for_group=role,
-                cmd=(
-                    f"podman image exists {image_name} "
-                    f"|| podman pull{tls_verify} {image_name}"
-                ),
-            )]
+                cmd=f"podman image exists {image_name} || podman pull{tls_verify} {image_name}",
+            ),
+        ]
 
     @staticmethod
     def up_container(name_app: str, network: str, path_to_manifest: str, user: str, role: str) -> list[ShellCommand]:
