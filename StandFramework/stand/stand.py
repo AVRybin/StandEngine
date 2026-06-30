@@ -233,8 +233,9 @@ class Stand:
         if login_command is not None:
             shell.append(login_command)
 
-        for image in node_images:
-            shell.extend(ShellCollect.download_image(image, self.app_user, node_group))
+        download_command = ShellCollect.download_images(node_images, self.app_user, node_group)
+        if download_command is not None:
+            shell.append(download_command)
 
         logout_command = ShellCollect.logout_registries(node_registries, self.app_user, node_group)
         if logout_command is not None:

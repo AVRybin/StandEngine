@@ -34,7 +34,7 @@ class ShellCollect:
                 "export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus;")
 
     @staticmethod
-    def login_registries(registries: list[ImageRegistry], user: str, role: str) -> ShellCommand | None:
+    def login_registries(registries: list[ImageRegistry], user: str, for_group: str) -> ShellCommand | None:
         commands = []
 
         for registry in registries:
@@ -62,12 +62,12 @@ class ShellCollect:
             user=user,
             sudo=True,
             full_login=True,
-            for_group=role,
+            for_group=for_group,
             cmd=" && ".join(commands),
         )
 
     @staticmethod
-    def logout_registries(registries: list[ImageRegistry], user: str, role: str) -> ShellCommand | None:
+    def logout_registries(registries: list[ImageRegistry], user: str, for_group: str) -> ShellCommand | None:
         commands = []
 
         for registry in registries:
@@ -85,25 +85,37 @@ class ShellCollect:
             user=user,
             sudo=True,
             full_login=True,
-            for_group=role,
+            for_group=for_group,
             cmd=" && ".join(commands),
         )
 
     @staticmethod
-    def download_image(image: Image, user: str, role: str) -> list[ShellCommand]:
-        image_name = image.full_name
-        tls_verify = " --tls-verify=false" if image.registry.insecure else ""
+    def download_images(images: list[Image], user: str, for_group: str) -> ShellCommand | None:
+        if not images:
+            return None
 
-        return [
-            ShellCommand(
-                name=f"Download Podman image {image_name}",
-                user=user,
-                sudo=True,
-                full_login=True,
-                for_group=role,
-                cmd=f"podman image exists {image_name} || podman pull{tls_verify} {image_name}",
-            ),
-        ]
+        pull_commands = []
+
+        for image in images:
+            image_name = quote(image.full_name)
+            tls_verify = " --tls-verify=false" if image.registry.insecure else ""
+            pull_commands.append(
+                f"podman image exists {image_name} || podman pull{tls_verify} {image_name}"
+            )
+
+        cmd = (
+            f"printf '%s\\n' {' '.join(quote(command) for command in pull_commands)} "
+            f"| xargs -P {len(pull_commands)} -I {{}} sh -c {{}}"
+        )
+
+        return ShellCommand(
+            name="Download images",
+            user=user,
+            sudo=True,
+            full_login=True,
+            for_group=for_group,
+            cmd=cmd,
+        )
 
     @staticmethod
     def up_container(name_app: str, network: str, path_to_manifest: str, user: str, role: str) -> list[ShellCommand]:
