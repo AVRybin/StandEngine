@@ -9,7 +9,7 @@ from box import Box
 
 from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor, ShellCommand
 from InfraBaseLib.SShExecutor import InfraOperation, UploadAsset, SShExecutorDiagnostArgs
-from ShellCollect import ShellCollect
+from ShellCollect import ShellCollect, Port, Image
 from App import ClusterApp, App
 from StandFramework import ConfigBackend, StandState
 
@@ -203,9 +203,28 @@ class Stand:
     def settings_runtime(self) -> None:
         self.shell_script.extend(ShellCollect.setting_podman_app_runtime(self.app_user, self.APP_RUNTIME))
 
+    def get_node_shell_install_apps(self, node: Node, node_group: str) -> list[InfraOperation]:
+        shell = []
+        ports: dict[tuple[int, str, str], Port] = {}
+        images: dict[str, Image] = {}
+
+        for instance in node.instances_app:
+            for port in instance.role.ports:
+                ports[(port.number, port.protocol, port.zone)] = port
+
+            cluster = self.instance_apps[instance.name].cluster
+            images[cluster.image.full_name] = cluster.image
+
+        shell.extend(ShellCollect.open_ports(list(ports.values()), node_group))
+
+        for image in images.values():
+            shell.extend(ShellCollect.download_image(image, self.app_user, node_group))
+
+        return shell
+
     def add_app_install(self) -> None:
-        for _, cluster in self.clusters_app.items():
-            self.shell_script.extend(cluster.get_shell_install(self.app_user))
+        for node_name, node in self.nodes.items():
+            self.shell_script.extend(self.get_node_shell_install_apps(node, self.node_groups[node_name]))
 
     def build_preflight_operations(self) -> list[InfraOperation]:
         return [

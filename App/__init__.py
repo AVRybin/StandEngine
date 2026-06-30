@@ -30,15 +30,3 @@ class ClusterApp:
     preferences: dict[str, str] = field(default_factory=dict)
     instances_app: list[App] = field(default_factory=list)
     paths_to_templates: dict[str, ConfigFile] = field(default_factory=list)
-
-    def get_shell_install(self, user: str) -> list[ShellCommand]:
-        shell = []
-        roles = {}
-
-        for instance in self.instances_app:
-            if instance.role.name not in roles:
-                roles[instance.role.name] = 1
-                shell.extend(ShellCollect.open_ports(instance.role.ports, self.name + "___" + instance.role.name))
-
-        shell.extend(ShellCollect.download_image(self.image, user, self.name))
-        return shell
