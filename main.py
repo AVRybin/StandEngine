@@ -1,164 +1,50 @@
-import sys, os, bcrypt, base64, secrets
+import sys
 from pathlib import Path
-from dataclasses import replace
 
 from config.config import Config
-
-from StandFramework import Stand, StandState, Node
-from ShellCollect import Port, Image, ImageRegistry
-from App import App, RoleApp, ClusterApp, ConfigFile
-
-config = Config()
-AUTH_KEY = Path(__file__).parent / "auth_key"
-
-key = ""
-if AUTH_KEY.exists():
-    with open(AUTH_KEY, "r") as f:
-        key = f.read()
-
-APP_RUNTIME = "podman"
-local_registry = ImageRegistry(
-    url="10.1.0.11",
-    username="robot$builder",
-    password="ou1x3vGhd351WwdaotZK5pP0obkJxE5J",
-    insecure=True
-)
-portBase = Port(
-    number=19092,
-    protocol="tcp",
-    zone="internal",
-)
-
-role_master = RoleApp(name="first-seed",
-                      ports=[portBase, replace(portBase, number=33145), replace(portBase, number=9644)])
-role_seed = RoleApp(name="base-seed",
-                      ports=[portBase, replace(portBase, number=33145)])
-instance_master = App(
-    role=role_master,
-    name="redpanda-master",
-    hook_path=Path(__file__).parent / "app-registry/redpanda/migration",
-)
-instance_seed_1 = App(role=role_seed, name="redpanda-seed-1")
-instance_seed_2 = App(role=role_seed, name="redpanda-seed-2")
-
-redpanda = ClusterApp(
-    name="redpanda",
-    image=Image(
-        path="infra_depence/redpandadata/redpanda",
-        version="v25.3.7",
-        registry=local_registry,
-    ),
-    instances_app=[instance_master, instance_seed_1, instance_seed_2],
-    preferences={"admin_pass": "tempPassword6512", "admin_user": "cool_admin"},
-    paths_to_templates={"pod": ConfigFile(
-        paths_to_templates=Path(__file__).parent / "app-registry/redpanda/redpanda-instance.yml.mako",
-        dest="/home/userapp/redpanda-instance.yml",
-        owner="userapp",
-        mode="644")},
-)
-
-role_ui = RoleApp(name="ui", ports=[Port(number=8180, protocol="tcp", zone="internal")])
-instance_ui = App(role=role_ui, name="kafka-ui")
-
-password_for_ui = bcrypt.hashpw("12345678".encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-kafka_ui = ClusterApp(
-    name="kafka-ui",
-    image=Image(
-        path="infra_depence/kafbat/kafka-ui",
-        version="v1.4.2",
-        registry=local_registry,
-    ),
-    instances_app=[instance_ui],
-    preferences={"admin_user": "cool_admin_ui", "admin_pass_bcrypt": password_for_ui},
-    paths_to_templates={"pod": ConfigFile(
-        paths_to_templates=Path(__file__).parent / "app-registry/kafka-ui/kafka-ui.yml.mako",
-        dest="/home/userapp/kafka-ui-instance.yml",
-        owner="userapp",
-        mode="644")}
-)
-
-role_master_redis = RoleApp(name="master-redis", ports=[Port(number=6379, protocol="tcp", zone="internal")])
-instance_master_redis = App(role=role_master_redis, name="master-redis")
-
-redis = ClusterApp(
-    name="redis",
-    image=Image(
-        path="infra_depence/redis",
-        version="7.4.0-alpine3.20",
-        registry=local_registry,
-    ),
-    instances_app=[instance_master_redis],
-    preferences={"admin_user": "cool_admin_ui", "admin_pass": "12345678"},
-    paths_to_templates={"pod": ConfigFile(
-        paths_to_templates=Path(__file__).parent / "app-registry/redis/redis-instance.yml.mako",
-        dest="/home/userapp/redis.yml",
-        owner="userapp",
-        mode="644")}
-)
-
-role_first_mongo = RoleApp(name="member", ports=[Port(number=27017, protocol="tcp", zone="internal")])
-mongo_instance = App(role=role_first_mongo, name="mongo-instance",
-                     hook_path=Path(__file__).parent / "app-registry/mongo/hook")
-
-key_for_mongo = base64.b64encode(secrets.token_bytes(764)).decode("ascii")
-mongo = ClusterApp(
-    name="mongo",
-    image=Image(
-        path="infra_depence/mongo",
-        version="7.0.18-rc0",
-        registry=local_registry,
-    ),
-    instances_app=[mongo_instance],
-    preferences={"admin_user": "cool_admin_ui", "admin_pass": "12345678", "replica_set_key": key_for_mongo,
-                 "replica_set_name": "rs0"},
-    paths_to_templates={"pod": ConfigFile(
-        paths_to_templates=Path(__file__).parent / "app-registry/mongo/mongo-instance.yml.mako",
-        dest="/home/userapp/mongo.yml",
-        owner="userapp",
-        mode="644")}
-)
-
-stand_project = StandState(owner=config.stand.user, passphrase=config.stand.passphrase,
-                           project=config.stand.project_name, env=config.stand.name)
-
-baseServer = dict(
-    location="hel1",
-    type_serv="cpx32",
-    image="rocky-10",
-    network="network-p2p",
-    app_runtime=APP_RUNTIME,
-)
-
-servers = {
-    "master-server": Node(**baseServer, instances_app=[instance_master, instance_ui, instance_master_redis,
-                                                       mongo_instance]),
-    "seed-server-1": Node(**baseServer, instances_app=[instance_seed_1]),
-    "seed-server-2": Node(**baseServer, instances_app=[instance_seed_2]),
-}
-
-stand = Stand(private_key=key, sudo_user="av.rybin", app_user="userapp", key_name_admin="AVRybin", nodes=servers,
-              state=stand_project, clusters=[redpanda, kafka_ui, redis, mongo],
-              path_folder_configset=Path(__file__).parent / "configset")
+from ManifestParser import parse_manifest
+from StandBuilder import build_stand
 
 
-if len(sys.argv) > 1 and sys.argv[1] == "destroy":
-    stand.destroy()
-    os.remove(AUTH_KEY)
-    sys.exit(0)
+def parse_args(argv: list[str]) -> tuple[bool, Path]:
+    if len(argv) != 3 or argv[1] not in {"create", "destroy"}:
+        print("Usage: python main.py <create|destroy> <path_to_stand_manifest>")
+        sys.exit(1)
 
-stand.create_servers()
+    return argv[1] == "destroy", Path(argv[2])
 
-if not AUTH_KEY.exists():
-    with open(AUTH_KEY, "w") as f:
-        f.write(stand.key.private)
 
-print(stand.nodes["master-server"].public_ip)
-print(stand.nodes["master-server"].private_ip)
+def load_private_key(path_to_key: Path) -> str:
+    if not path_to_key.exists():
+        return ""
 
-stand.render_deploy_configset()
-stand.settings_runtime()
-stand.add_app_install()
-stand.launch_apps()
+    with open(path_to_key, "r") as f:
+        return f.read()
 
-stand.run_server_tasks(diagnostic=True)
+
+def main(argv: list[str]) -> int:
+    is_destroy, path_to_stand_manifest = parse_args(argv)
+    config = Config()
+    path_to_key = config.stand.path_to_key
+
+    try:
+        stand_data = parse_manifest(path_to_stand_manifest)
+        stand = build_stand(stand_data, config, private_key=load_private_key(path_to_key))
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        print(exc)
+        return 1
+
+    if is_destroy:
+        stand.destroy()
+        return 0
+
+    if not path_to_key.exists():
+        with open(path_to_key, "w") as f:
+            f.write(stand.key.private)
+
+    stand.up(diagnostic=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

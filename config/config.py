@@ -1,12 +1,13 @@
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
 
 
 class StandSettings(BaseModel):
     user: str
     passphrase: str
-    project_name: str
-    name: str
+    path_to_key: Path
+    path_to_configset: Path
 
 class Config(BaseSettings):
     model_config = SettingsConfigDict(

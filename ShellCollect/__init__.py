@@ -58,7 +58,7 @@ class ShellCollect:
             return None
 
         return ShellCommand(
-            name="Login to Podman registries",
+            name="Login to Podman registries.yml",
             user=user,
             sudo=True,
             full_login=True,
@@ -81,7 +81,7 @@ class ShellCollect:
             return None
 
         return ShellCommand(
-            name="Logout from Podman registries",
+            name="Logout from Podman registries.yml",
             user=user,
             sudo=True,
             full_login=True,

@@ -7,7 +7,7 @@ from typing import Callable
 from mako.template import Template
 from box import Box
 
-from InfraBaseLib import SShKey, CloudInit, MetalProvision, ServersDesigner, Server, SShExecutor, ShellCommand
+from InfraBaseLib import SShKey, MetalProvision, ServersDesigner, Server, SShExecutor, ShellCommand
 from InfraBaseLib.SShExecutor import InfraOperation, UploadAsset, SShExecutorDiagnostArgs
 from ShellCollect import ShellCollect, Port, Image, ImageRegistry
 from App import ClusterApp, App
@@ -37,6 +37,7 @@ class Node:
     network: InitVar[str]
     image: InitVar[str]
 
+    cloud_init_template: Path
     machine: Server = field(init=False)
     app_runtime: str
     roles_app: dict[str, list[str]] = field(default_factory=dict, init=False)
@@ -64,7 +65,6 @@ class Stand:
 
     sudo_user: str
     app_user: str
-    cloud_init: str = field(init=False)
 
     backend: ConfigBackend = None
     state: StandState
@@ -89,7 +89,6 @@ class Stand:
     def __post_init__(self, private_key: str, key_name_admin: str, clusters: list[ClusterApp]):
         self.instance_apps = {}
         self.key = Keys(private=private_key)
-        self.cloud_init = CloudInit.render(self.sudo_user, self.key.pub, self.app_user)
 
         if self.backend is None:
             self.backend = ConfigBackend()
@@ -136,10 +135,13 @@ class Stand:
                 self.instance_apps[instance.name].node = node
 
             node.machine.labels = self.build_node_labels(node)
+            node.machine.cloud_init_template = node.cloud_init_template
+            node.machine.sudo_user = self.sudo_user
+            node.machine.ssh_public_key = self.key.pub
+            node.machine.app_user = self.app_user
 
         designer = ServersDesigner(
             ssh_admin_name=key_name_admin,
-            user_data=self.cloud_init,
         )
 
         servers_for_provision = {}
@@ -370,3 +372,12 @@ class Stand:
             ))
 
             self.add_app_hook(instance)
+
+    def up(self, diagnostic: bool | SShExecutorDiagnostArgs = False):
+        self.create_servers()
+        self.render_deploy_configset()
+        self.settings_runtime()
+        self.add_app_install()
+        self.launch_apps()
+
+        self.run_server_tasks(diagnostic)

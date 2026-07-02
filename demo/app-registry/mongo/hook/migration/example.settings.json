@@ -1,0 +1,14 @@
+[
+  {
+    "_id": "sample-setting-1",
+    "key": "feature.demo_mode",
+    "value": true,
+    "description": "Enables demo-only behavior for local stands."
+  },
+  {
+    "_id": "sample-setting-2",
+    "key": "limits.max_items",
+    "value": 100,
+    "description": "Example numeric setting for migration samples."
+  }
+]

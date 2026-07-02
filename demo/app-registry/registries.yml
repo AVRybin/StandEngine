@@ -1,0 +1,11 @@
+version: 1
+
+registries:
+  docker:
+    url: docker.io
+
+  local:
+    url: 10.1.0.11
+    username: "robot$builder"
+    password: ixUbWuVuLzHkdO4M8JchpWq7OVKqN5XN
+    insecure: true

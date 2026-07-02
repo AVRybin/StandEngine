@@ -1,0 +1,21 @@
+version: 1
+name: mongo
+
+image:
+  registry: docker
+  path: library/mongo
+  version: 7.0.18-rc0
+
+roles:
+  member:
+    ports:
+      - number: 27017
+        protocol: tcp
+        zone: internal
+
+templates:
+  pod:
+    path: mongo-instance.yml.mako
+    dest: /home/userapp/mongo.yml
+    owner: userapp
+    mode: "644"

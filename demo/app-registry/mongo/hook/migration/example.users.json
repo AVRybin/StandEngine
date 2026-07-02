@@ -1,0 +1,16 @@
+[
+  {
+    "_id": "sample-user-1",
+    "username": "demo-admin",
+    "display_name": "Demo Administrator",
+    "role": "admin",
+    "enabled": true
+  },
+  {
+    "_id": "sample-user-2",
+    "username": "demo-viewer",
+    "display_name": "Demo Viewer",
+    "role": "viewer",
+    "enabled": true
+  }
+]

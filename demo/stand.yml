@@ -1,0 +1,84 @@
+version: 1
+
+stand:
+  project: demo
+  env: test
+  users:
+    sudo: av.rybin
+    app: userapp
+  ssh:
+    key_name_admin: AVRybin
+
+node_profiles:
+  default:
+    location: hel1
+    type_serv: cpx32
+    image: rocky-10
+    network: network-p2p
+    cloud-init: ./cloud-init.yaml.mako
+
+from_dep_manifest: ./app-registry/registries.yml
+
+apps:
+  redpanda:
+    from_dep_manifest: ./app-registry/redpanda/app.yml
+    preferences:
+      admin_user: cool_admin
+      admin_pass: tempPassword6512
+    instances:
+      redpanda-master:
+        role: first-seed
+        hooks: migration
+      redpanda-seed-1:
+        role: base-seed
+      redpanda-seed-2:
+        role: base-seed
+
+  kafka-ui:
+    from_dep_manifest: ./app-registry/kafka-ui/app.yml
+    preferences:
+      admin_user: cool_admin_ui
+      admin_pass_bcrypt: "$2b$12$NnaPaR4a1vk5QonDskpMtuvczNDwZeW5BIrvn306MnLrydLlGdKHS"
+    instances:
+      kafka-ui:
+        role: ui
+
+  redis:
+    from_dep_manifest: ./app-registry/redis/app.yml
+    preferences:
+      admin_user: cool_admin_ui
+      admin_pass: "12345678"
+    instances:
+      master-redis:
+        role: master-redis
+
+  mongo:
+    from_dep_manifest: ./app-registry/mongo/app.yml
+    preferences:
+      admin_user: cool_admin_ui
+      admin_pass: "12345678"
+      replica_set_name: rs0
+      replica_set_key: "oOb8lg8NQGV5/EsDR2WNbZl6OxdRisF1cfLvn0JN4JriYRfF9vUzGnKQS91fr4BJa2tLCrazSsbjPUGivWbm6zRPu6l4Y3qc6NlYK3DfLUU7pvxt/3L2GnIEHKJjeFEpsNEsd2UQM0KQDOHkqsk2AHzRo/j/xKbyNNS2cpZlRGi9nB/bS35Plpn2IgC80zAiF4D1YXpPD4AOZBHBJaakPsAJ6cs04pP0+zikT2dDm3Cp6tpZiZndHoxnTEWCzq7YRrVbon4G8X7IXGI8lySYm14IgC+wM0wuKgvPhx5B2Od/t39I7llFv/woHqVodQRgQHZqa1/zYOkkd+7vqHt7ndiCW313B17JwTwTLekq2dQJlKOHHcFrhM7uMXAUz+D6EJq2ARwokr9/64Fv8JJZghtwsQEN117PuvhapOTnYwgBZGnPbXkb4CRFOlGzMu7HMD3BIKj12VxMjSlmDp0i9kPWIttTGcNeAdqxMBQPTnEb1kAJurvzkZ22pgkb0YdRB/QK1dhqp/zz/F2ZP7mn3q7wlh/6cEFF1mDT/7bfav3i1vMvtA6KvAUVdvYH+Mdj3XPhia4JNaP5GawP6THO7Obm13O/tqxPz6h6VDidi6qZ9aoOMFbfNVHAre5VwirpFsEVkwfzXU/J0hsXOBJpHXkFuvb/A8/KQiJLAWQbKDTJSKC7eMMvlO9a9efyVRAcvLWYg9EteEKjNr4MJpSVFJa33BIAkiiVkRWYoPHjRu6VdZ7gStWiC0h033B0kzFgRkObGd4apgl5xJT0emZrC/vXAKHBtgOeI/+AoBT023iBl2r368W/zw7sMEXuecBbqygMaJTqtl6vPUe/LqSI0CfoS/YtagEvkxgMNPwFNsUpJgeJekny2kgB7M/Dn/Serh+JkL+3hyOTZhgUYsKSgz7tGFos95/3w5i0YgsA2aBmQ9j+05kwuv5kbFMg271KWPBE1SjWYHMxEe4/JiBhk7rsPEYxHH0mgNCP2Ock53YUogub69hnbyEDylA="
+    instances:
+      mongo-instance:
+        role: member
+        hooks: hook
+
+nodes:
+  master-server:
+    profile: default
+    apps:
+      - redpanda-master
+      - kafka-ui
+      - master-redis
+      - mongo-instance
+
+  seed-server-1:
+    profile: default
+    apps:
+      - redpanda-seed-1
+
+  seed-server-2:
+    profile: default
+    apps:
+      - redpanda-seed-2

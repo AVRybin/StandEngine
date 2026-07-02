@@ -1,0 +1,21 @@
+version: 1
+name: redis
+
+image:
+  registry: docker
+  path: library/redis
+  version: 7.4.0-alpine3.20
+
+roles:
+  master-redis:
+    ports:
+      - number: 6379
+        protocol: tcp
+        zone: internal
+
+templates:
+  pod:
+    path: redis-instance.yml.mako
+    dest: /home/userapp/redis.yml
+    owner: userapp
+    mode: "644"

@@ -1,0 +1,36 @@
+version: 1
+name: redpanda
+
+image:
+  registry: docker
+  path: redpandadata/redpanda
+  version: v25.3.7
+
+roles:
+  first-seed:
+    ports:
+      - number: 19092
+        protocol: tcp
+        zone: internal
+      - number: 33145
+        protocol: tcp
+        zone: internal
+      - number: 9644
+        protocol: tcp
+        zone: internal
+
+  base-seed:
+    ports:
+      - number: 19092
+        protocol: tcp
+        zone: internal
+      - number: 33145
+        protocol: tcp
+        zone: internal
+
+templates:
+  pod:
+    path: redpanda-instance.yml.mako
+    dest: /home/userapp/redpanda-instance.yml
+    owner: userapp
+    mode: "644"

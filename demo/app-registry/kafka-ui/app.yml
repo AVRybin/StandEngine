@@ -1,0 +1,21 @@
+version: 1
+name: kafka-ui
+
+image:
+  registry: docker
+  path: kafbat/kafka-ui
+  version: v1.4.2
+
+roles:
+  ui:
+    ports:
+      - number: 8180
+        protocol: tcp
+        zone: internal
+
+templates:
+  pod:
+    path: kafka-ui.yml.mako
+    dest: /home/userapp/kafka-ui-instance.yml
+    owner: userapp
+    mode: "644"

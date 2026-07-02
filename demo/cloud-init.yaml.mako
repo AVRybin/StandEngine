@@ -51,14 +51,14 @@ runcmd:
   - firewall-offline-cmd --zone=public --set-target=DROP
   - firewall-offline-cmd --zone=internal --set-target=DROP
   - firewall-offline-cmd --set-default-zone=public
-  - firewall-offline-cmd --zone=internal --add-source=10.1.0.0/16
+  - firewall-offline-cmd --zone=internal --add-source=${network_ip_range}
   - firewall-offline-cmd --zone=internal --add-service=ssh
   - systemctl enable --now firewalld
   - sshd -t && systemctl restart ssh 2>/dev/null || systemctl restart sshd
 
   - >
     wget --connect-timeout=10 --read-timeout=15 --tries=5 --waitretry=5 --retry-connrefused -c
-    https://hel1.your-objectstorage.com/file-upload/podlet/0.3.2/podlet-x86_64-unknown-linux-gnu.tar.xz
+    https://github.com/containers/podlet/releases/download/v0.3.2/podlet-x86_64-unknown-linux-gnu.tar.xz
   - tar -xJf podlet-x86_64-unknown-linux-gnu.tar.xz
   - mv ./podlet-x86_64-unknown-linux-gnu/podlet /usr/bin/podlet
   - rm -rf podlet-x86_64-unknown-linux-gnu*
