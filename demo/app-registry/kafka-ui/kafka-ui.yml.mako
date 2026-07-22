@@ -41,11 +41,21 @@ metadata:
   name: ${instance.name}
   annotations:
     ad.datadoghq.com/my-app.logs: '[{"source": "infra", "service": "${instance.name}"}]'
+    % if instance.oom_priority is not None:
+    io.podman.annotations.oom_score_adj: "${instance.oom_priority}"
+    % endif
 spec:
   restartPolicy: OnFailure
   containers:
     - name: ${instance.name}
       image: ${cluster.image.full_name}
+      resources:
+        requests:
+          cpu: "${instance.cpu}m"
+          memory: "${instance.ram}M"
+        limits:
+          cpu: "${instance.cpu}m"
+          memory: "${instance.ram}M"
       volumeMounts:
         - name: config-volume
           mountPath: /etc/kafkaui/dynamic_config.yaml

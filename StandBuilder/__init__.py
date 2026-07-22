@@ -72,6 +72,9 @@ def _build_cluster(
         instance = App(
             name=instance_name,
             role=roles[instance_data["role"]],
+            cpu=instance_data["cpu"],
+            ram=instance_data["ram"],
+            oom_priority=instance_data.get("oom_priority"),
             hook_path=Path(instance_data["hooks"]) if "hooks" in instance_data else None,
             preferences=instance_data.get("preferences", {}),
         )

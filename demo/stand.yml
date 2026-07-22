@@ -28,11 +28,18 @@ apps:
     instances:
       redpanda-master:
         role: first-seed
+        cpu: 1000
+        ram: 3072
+        oom_priority: -200
         hooks: migration
       redpanda-seed-1:
         role: base-seed
+        cpu: 3500
+        ram: 6656
       redpanda-seed-2:
         role: base-seed
+        cpu: 3500
+        ram: 6656
 
   kafka-ui:
     from_dep_manifest: ./app-registry/kafka-ui/app.yml
@@ -42,6 +49,8 @@ apps:
     instances:
       kafka-ui:
         role: ui
+        cpu: 500
+        ram: 512
 
   redis:
     from_dep_manifest: ./app-registry/redis/app.yml
@@ -51,6 +60,8 @@ apps:
     instances:
       master-redis:
         role: master-redis
+        cpu: 1000
+        ram: 2048
 
   mongo:
     from_dep_manifest: ./app-registry/mongo/app.yml
@@ -62,6 +73,9 @@ apps:
     instances:
       mongo-instance:
         role: member
+        cpu: 2000
+        ram: 2048
+        oom_priority: -300
         hooks: hook
 
 nodes:

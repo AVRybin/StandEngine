@@ -7,6 +7,9 @@ from ShellCollect import ShellCommand, Port, Image, ShellCollect
 class App:
     name: str
     role: RoleApp
+    cpu: int
+    ram: int
+    oom_priority: int | None = None
     hook_path: Path | None = None
     preferences: dict[str, str] = field(default_factory=dict)
 

@@ -144,6 +144,19 @@ def _validate_instances(
         if role_name not in roles:
             raise ValueError(f"{instance_path}.role references unknown role {role_name!r}")
 
+        cpu = _require_int_key(instance, "cpu", instance_path)
+        if cpu <= 0:
+            raise ValueError(f"{instance_path}.cpu must be greater than zero")
+
+        ram = _require_int_key(instance, "ram", instance_path)
+        if ram <= 0:
+            raise ValueError(f"{instance_path}.ram must be greater than zero")
+
+        if "oom_priority" in instance:
+            oom_priority = _require_int_key(instance, "oom_priority", instance_path)
+            if not -1000 <= oom_priority <= 1000:
+                raise ValueError(f"{instance_path}.oom_priority must be between -1000 and 1000")
+
         if instance_name in instance_to_app:
             raise ValueError(
                 f"{instance_path} duplicates instance declared in app {instance_to_app[instance_name]!r}"
@@ -241,7 +254,7 @@ def _require_int_key(data: dict, key: str, path: str) -> int:
         raise ValueError(f"{path}.{key} is required")
 
     value = data[key]
-    if not isinstance(value, int):
+    if type(value) is not int:
         raise ValueError(f"{path}.{key} must be an integer")
 
     return value
