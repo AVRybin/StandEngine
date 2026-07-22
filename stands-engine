@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: ./stands-engine [options] <create|destroy> <manifest>
+
+Options:
+  --runtime <docker|podman>  Container runtime (auto-detected by default)
+  --image <reference>        OCI image (default: stands-engine:local)
+  --env-file <path>          Environment file passed to the container
+  -h, --help                 Show this help
+
+Environment:
+  STANDS_ENGINE_IMAGE        Default image reference
+  CONTAINER_RUNTIME          Default container runtime
+EOF
+}
+
+runtime="${CONTAINER_RUNTIME:-}"
+image="${STANDS_ENGINE_IMAGE:-stands-engine:local}"
+env_file=""
+operation=""
+manifest=""
+
+while (($#)); do
+    case "$1" in
+        --runtime)
+            runtime="${2:?--runtime requires a value}"
+            shift 2
+            ;;
+        --image)
+            image="${2:?--image requires a value}"
+            shift 2
+            ;;
+        --env-file)
+            env_file="${2:?--env-file requires a value}"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        create|destroy)
+            if [[ -n "${operation}" ]]; then
+                echo "Operation was specified more than once." >&2
+                usage >&2
+                exit 2
+            fi
+            operation="$1"
+            shift
+            ;;
+        *)
+            if [[ -z "${manifest}" ]]; then
+                manifest="$1"
+                shift
+            else
+                echo "Unexpected argument: $1" >&2
+                usage >&2
+                exit 2
+            fi
+            ;;
+    esac
+done
+
+if [[ -z "${operation}" || -z "${manifest}" ]]; then
+    usage >&2
+    exit 2
+fi
+
+if [[ -z "${runtime}" ]]; then
+    if command -v podman >/dev/null 2>&1; then
+        runtime="podman"
+    elif command -v docker >/dev/null 2>&1; then
+        runtime="docker"
+    else
+        echo "Neither podman nor docker was found in PATH." >&2
+        exit 1
+    fi
+fi
+
+if [[ "${runtime}" != "docker" && "${runtime}" != "podman" ]]; then
+    echo "Unsupported container runtime: ${runtime}" >&2
+    exit 2
+fi
+
+if ! command -v "${runtime}" >/dev/null 2>&1; then
+    echo "Container runtime '${runtime}' was not found in PATH." >&2
+    exit 1
+fi
+
+if [[ ! -f "${manifest}" ]]; then
+    echo "Manifest does not exist: ${manifest}" >&2
+    exit 1
+fi
+
+cwd="$(pwd -P)"
+manifest_dir="$(cd "$(dirname "${manifest}")" && pwd -P)"
+manifest_name="$(basename "${manifest}")"
+
+case "${manifest_dir}" in
+    "${cwd}")
+        workspace="${cwd}"
+        container_manifest="/workspace/${manifest_name}"
+        ;;
+    "${cwd}"/*)
+        workspace="${cwd}"
+        relative_dir="${manifest_dir#"${cwd}"/}"
+        container_manifest="/workspace/${relative_dir}/${manifest_name}"
+        ;;
+    *)
+        workspace="${manifest_dir}"
+        container_manifest="/workspace/${manifest_name}"
+        ;;
+esac
+
+data_dir="${cwd}/.stands-engine"
+mkdir -p "${data_dir}/keys" "${data_dir}/configsets" "${data_dir}/output"
+
+run_args=(run --rm)
+if [[ -t 0 && -t 1 ]]; then
+    run_args+=(-it)
+fi
+
+if [[ "$(uname -s)" == "Linux" ]]; then
+    run_args+=(--user "$(id -u):$(id -g)")
+fi
+
+if [[ -n "${env_file}" ]]; then
+    if [[ ! -f "${env_file}" ]]; then
+        echo "Environment file does not exist: ${env_file}" >&2
+        exit 1
+    fi
+    env_file_dir="$(cd "$(dirname "${env_file}")" && pwd -P)"
+    run_args+=(--env-file "${env_file_dir}/$(basename "${env_file}")")
+fi
+
+workspace_mount="${workspace}:/workspace:ro"
+data_mount="${data_dir}:/data"
+if [[ "${runtime}" == "podman" && "$(uname -s)" == "Linux" ]]; then
+    workspace_mount="${workspace_mount},Z"
+    data_mount="${data_mount}:Z"
+fi
+
+run_args+=(
+    --volume "${workspace_mount}"
+    --volume "${data_mount}"
+    --env STAND__PATH_TO_KEY=/data/keys/id_ed25519
+    --env STAND__PATH_TO_CONFIGSET=/data/configsets
+    --env OUTPUT__FILE_PATH=/data/output
+    "${image}"
+    "${operation}"
+    "${container_manifest}"
+)
+
+exec "${runtime}" "${run_args[@]}"

@@ -1,5 +1,5 @@
 [project]
-name = "stands_engine"
+name = "stands-engine"
 version = "0.1.0"
 description = "stands engine"
 readme = "README.md"
@@ -15,3 +15,26 @@ dependencies = [
     "pyinfra==3.9.2",
     "python-box==7.4.1",
 ]
+
+[project.scripts]
+stands-engine = "main:cli"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "App*",
+    "config*",
+    "InfraBaseLib*",
+    "ManifestParser*",
+    "ShellCollect*",
+    "StandBuilder*",
+    "StandFramework*",
+]
+namespaces = true

@@ -1,3 +1,5 @@
+import argparse
+from importlib.metadata import PackageNotFoundError, version
 import sys
 from pathlib import Path
 
@@ -6,12 +8,28 @@ from ManifestParser import parse_manifest
 from StandBuilder import build_stand
 
 
-def parse_args(argv: list[str]) -> tuple[bool, Path]:
-    if len(argv) != 3 or argv[1] not in {"create", "destroy"}:
-        print("Usage: python main.py <create|destroy> <path_to_stand_manifest>")
-        sys.exit(1)
+def application_version() -> str:
+    try:
+        return version("stands-engine")
+    except PackageNotFoundError:
+        return "0.1.0"
 
-    return argv[1] == "destroy", Path(argv[2])
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="stands-engine",
+        description="Create or destroy an infrastructure stand from a YAML manifest.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {application_version()}")
+    parser.add_argument("operation", choices=("create", "destroy"))
+    parser.add_argument("manifest", type=Path, help="path to the stand YAML manifest")
+    return parser
+
+
+def parse_args(argv: list[str]) -> tuple[bool, Path]:
+    args = build_parser().parse_args(argv[1:])
+
+    return args.operation == "destroy", args.manifest
 
 
 def load_private_key(path_to_key: Path) -> str:
@@ -51,5 +69,9 @@ def main(argv: list[str]) -> int:
     return 0
 
 
+def cli() -> int:
+    return main(sys.argv)
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    sys.exit(cli())

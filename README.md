@@ -76,6 +76,77 @@ Stands Engine берет модель стенда и проводит ее че
 uv sync
 ```
 
+После установки CLI доступен через `uv run`:
+
+```bash
+uv run stands-engine --help
+uv run stands-engine create demo/stand.yml
+```
+
+Прежний вариант `python main.py ...` остается совместимым.
+
+## Запуск в контейнере
+
+OCI image содержит Python, зависимости проекта, Pulumi CLI и hcloud provider plugin. На машине оператора достаточно Docker или Podman; Podman на целевых серверах устанавливается самим движком и не связан с runtime, используемым для запуска Stands Engine.
+
+Локальная сборка:
+
+```bash
+docker build -f Containerfile -t stands-engine:local .
+# или
+podman build -f Containerfile -t stands-engine:local .
+```
+
+Для повседневного запуска используйте launcher. Он автоматически выберет Podman или Docker, примонтирует текущий каталог только для чтения и сохранит ключи, configsets и connection output в `.stands-engine/`:
+
+```bash
+./stands-engine --env-file dev.env create demo/stand.yml
+./stands-engine --env-file dev.env destroy demo/stand.yml
+```
+
+Явный выбор runtime или опубликованного image:
+
+```bash
+./stands-engine \
+  --runtime docker \
+  --image registry.example.com/stands-engine:0.1.0 \
+  --env-file dev.env \
+  create demo/stand.yml
+```
+
+PowerShell на Windows, macOS или Linux:
+
+```powershell
+.\stands-engine.ps1 create .\demo\stand.yml -EnvFile dev.env
+.\stands-engine.ps1 destroy .\demo\stand.yml -EnvFile dev.env
+```
+
+Launcher переопределяет локальные абсолютные пути из env-файла контейнерными:
+
+```env
+STAND__PATH_TO_KEY=/data/keys/id_ed25519
+STAND__PATH_TO_CONFIGSET=/data/configsets
+OUTPUT__FILE_PATH=/data/output
+```
+
+Сам `dev.env`, другие `*.env`, приватные ключи, `.git` и локальные результаты исключены из build context и не копируются в image.
+
+### Запуск без launcher
+
+```bash
+docker run --rm \
+  --env-file dev.env \
+  -e STAND__PATH_TO_KEY=/data/keys/id_ed25519 \
+  -e STAND__PATH_TO_CONFIGSET=/data/configsets \
+  -e OUTPUT__FILE_PATH=/data/output \
+  -v "$PWD:/workspace:ro" \
+  -v "$PWD/.stands-engine:/data" \
+  registry.example.com/stands-engine:0.1.0 \
+  create /workspace/demo/stand.yml
+```
+
+В CI передавайте секреты через защищенные переменные pipeline. Для воспроизводимого запуска используйте version tag или digest, а не изменяемый `latest`.
+
 ## Конфигурация
 
 Настройки читаются из переменных окружения или файла `.env`. Вложенные секции задаются через `__`.
