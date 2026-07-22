@@ -3,7 +3,7 @@
 RPK_USER="${cluster.preferences.admin_user}"
 RPK_PASS="${cluster.preferences.admin_pass}"
 
-RPK="podman exec ${instance.name}-${instance.name} rpk"
+RPK="podman exec ${instance.name} rpk"
 <%text>
 AUTH="-X user=${RPK_USER} -X pass=${RPK_PASS} -X sasl.mechanism=PLAIN"
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONTAINER="${instance.name}-${instance.name}"
+CONTAINER="${instance.name}"
 MONGO_USER="${cluster.preferences.admin_user}"
 MONGO_PASS="${cluster.preferences.admin_pass}"
 

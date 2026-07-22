@@ -10,8 +10,13 @@ def validate_manifest(manifest: dict) -> None:
     _validate_stand(stand)
     _validate_registries(registries)
     instance_to_app = _validate_apps(apps, registries)
+    agent_instances = (
+        _validate_agents(manifest["agents"], apps, instance_to_app)
+        if "agents" in manifest
+        else set()
+    )
     _validate_node_profiles(node_profiles)
-    _validate_nodes(nodes, node_profiles, instance_to_app)
+    _validate_nodes(nodes, node_profiles, instance_to_app, agent_instances)
 
 
 def _validate_stand(stand: dict) -> None:
@@ -196,9 +201,61 @@ def _validate_node_profiles(node_profiles: dict) -> None:
             _require_string_key(profile, "app_runtime", profile_path)
 
 
-def _validate_nodes(nodes: dict, node_profiles: dict, instance_to_app: dict[str, str]) -> None:
+def _validate_agents(
+    agents: object,
+    apps: dict,
+    instance_to_app: dict[str, str],
+) -> set[str]:
+    _require_mapping(agents, "manifest.agents")
+    agent_apps = _require_list_key(agents, "apps", "manifest.agents")
+    agent_instances = set()
+
+    for index, instance_name in enumerate(agent_apps):
+        instance_path = f"manifest.agents.apps[{index}]"
+        if not isinstance(instance_name, str) or not instance_name:
+            raise ValueError(f"{instance_path} must be a non-empty string")
+        if instance_name not in instance_to_app:
+            raise ValueError(f"{instance_path} references unknown instance {instance_name!r}")
+        if instance_name in agent_instances:
+            raise ValueError(f"{instance_path} duplicates agent instance {instance_name!r}")
+
+        app_name = instance_to_app[instance_name]
+        if apps[app_name].get("connection_instance") == instance_name:
+            raise ValueError(
+                f"manifest.apps.{app_name}.connection_instance cannot reference agent instance "
+                f"{instance_name!r}"
+            )
+
+        agent_instances.add(instance_name)
+
+    return agent_instances
+
+
+def _validate_nodes(
+    nodes: dict,
+    node_profiles: dict,
+    instance_to_app: dict[str, str],
+    agent_instances: set[str],
+) -> None:
     if not nodes:
         raise ValueError("manifest.nodes must not be empty")
+
+    generated_instances = {}
+    for agent_instance in agent_instances:
+        for node_name in nodes:
+            generated_name = f"{agent_instance}--{node_name}"
+            if generated_name in instance_to_app:
+                raise ValueError(
+                    f"manifest.agents.apps generates instance {generated_name!r}, which conflicts "
+                    "with a declared instance"
+                )
+            if generated_name in generated_instances:
+                other_agent, other_node = generated_instances[generated_name]
+                raise ValueError(
+                    f"manifest.agents.apps generates duplicate instance {generated_name!r} for "
+                    f"{other_agent!r} on {other_node!r} and {agent_instance!r} on {node_name!r}"
+                )
+            generated_instances[generated_name] = (agent_instance, node_name)
 
     assigned_instances = {}
 
@@ -220,6 +277,10 @@ def _validate_nodes(nodes: dict, node_profiles: dict, instance_to_app: dict[str,
                 raise ValueError(f"{app_path} must be a non-empty string")
             if instance_name not in instance_to_app:
                 raise ValueError(f"{app_path} references unknown instance {instance_name!r}")
+            if instance_name in agent_instances:
+                raise ValueError(
+                    f"{app_path} agent instance {instance_name!r} cannot be assigned to a node"
+                )
             if instance_name in assigned_instances:
                 raise ValueError(
                     f"{app_path} instance {instance_name!r} is already assigned to node "
@@ -229,7 +290,7 @@ def _validate_nodes(nodes: dict, node_profiles: dict, instance_to_app: dict[str,
             assigned_instances[instance_name] = node_name
 
     for instance_name, app_name in instance_to_app.items():
-        if instance_name not in assigned_instances:
+        if instance_name not in assigned_instances and instance_name not in agent_instances:
             raise ValueError(f"manifest.apps.{app_name}.instances.{instance_name} is not assigned to any node")
 
 

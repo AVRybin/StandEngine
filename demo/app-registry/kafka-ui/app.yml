@@ -2,8 +2,8 @@ version: 1
 name: kafka-ui
 
 image:
-  registry: docker
-  path: kafbat/kafka-ui
+  registry: local
+  path: infra_depence/kafbat/kafka-ui
   version: v1.4.2
 
 roles:

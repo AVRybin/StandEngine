@@ -10,6 +10,7 @@ DEFAULT_APP_RUNTIME = "podman"
 
 
 def build_stand(stand_data: dict, config: Config, private_key: str = "") -> Stand:
+    stand_data = _expand_agent_apps(stand_data)
     registries = _build_registries(stand_data["registries"])
     clusters = []
     instances_by_name = {}
@@ -43,6 +44,39 @@ def build_stand(stand_data: dict, config: Config, private_key: str = "") -> Stan
         output_file=config.output.file,
         output_file_directory=config.output.file_path,
     )
+
+
+def _expand_agent_apps(stand_data: dict) -> dict:
+    expanded = _copy_manifest_value(stand_data)
+    agent_instances = expanded.pop("agents", {}).get("apps", [])
+    if not agent_instances:
+        return expanded
+
+    instance_locations = {
+        instance_name: (app_name, instance_data)
+        for app_name, app_data in expanded["apps"].items()
+        for instance_name, instance_data in app_data["instances"].items()
+    }
+
+    for instance_name in agent_instances:
+        app_name, instance_data = instance_locations[instance_name]
+        app_instances = expanded["apps"][app_name]["instances"]
+        del app_instances[instance_name]
+
+        for node_name, node_data in expanded["nodes"].items():
+            generated_name = f"{instance_name}--{node_name}"
+            app_instances[generated_name] = _copy_manifest_value(instance_data)
+            node_data["apps"].append(generated_name)
+
+    return expanded
+
+
+def _copy_manifest_value(value):
+    if isinstance(value, dict):
+        return {key: _copy_manifest_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_copy_manifest_value(item) for item in value]
+    return value
 
 
 def _build_registries(registries_data: dict) -> dict[str, ImageRegistry]:

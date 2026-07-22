@@ -127,7 +127,7 @@ class ShellCollect:
             for_group=role,
             cmd=(
                 f"podlet --overwrite --unit-directory --name {name_app} "
-                f"podman kube play --network {network} "
+                f"podman kube play --network {network} --no-pod-prefix "
                 f"\"{path_to_manifest}\""
             ),
         ),
@@ -265,6 +265,35 @@ class ShellCollect:
                 cmd=f"systemctl --user --machine={user}@.host start dbus.socket",
             ),
             ShellCommand(
+                name=f"Enable user Podman socket for {user}",
+                user="",
+                sudo=True,
+                full_login=False,
+                for_group=role,
+                cmd=f"systemctl --user --machine={user}@.host enable --now podman.socket",
+            ),
+            ShellCommand(
+                name=f"Create stable Podman socket path for {user}",
+                user="",
+                sudo=True,
+                full_login=False,
+                for_group=role,
+                cmd=f"ln -sfn /run/user/$(id -u {user})/podman/podman.sock "
+                    f"{app_home}/podman.sock && "
+                    f"chown -h {user}:$(id -gn {user}) {app_home}/podman.sock",
+            ),
+            ShellCommand(
+                name="Ensure Podman engine ID for Docker API clients",
+                user="",
+                sudo=True,
+                full_login=False,
+                for_group=role,
+                cmd="install -d -m 755 /var/lib/docker && "
+                    "{ test -s /var/lib/docker/engine-id || "
+                    "cat /proc/sys/kernel/random/uuid > /var/lib/docker/engine-id; } && "
+                    "chmod 644 /var/lib/docker/engine-id",
+            ),
+            ShellCommand(
                 name=f"Create Podman config dirs for {user}", user="", sudo=True, full_login=False,
                 for_group=role,
                 cmd=f"install -d "
@@ -280,5 +309,4 @@ class ShellCollect:
                 for_group=role,
                 cmd="podman network exists app-net || podman network create app-net",
             ),
-
-            ]
+        ]

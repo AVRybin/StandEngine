@@ -1,0 +1,21 @@
+version: 1
+name: dozzle
+
+image:
+  registry: docker
+  path: amir20/dozzle
+  version: v10.6.11
+
+roles:
+  logs-viewer:
+    ports:
+      - number: 3000
+        protocol: tcp
+        zone: internal
+
+templates:
+  pod:
+    path: dozzle-instance.yml.mako
+    dest: /home/userapp/dozzle.yml
+    owner: userapp
+    mode: "644"

@@ -4,8 +4,8 @@ name: redis
 connection: connection.json.mako
 
 image:
-  registry: docker
-  path: library/redis
+  registry: local
+  path: infra_depence/redis
   version: 7.4.0-alpine3.20
 
 roles:

@@ -81,6 +81,18 @@ apps:
         oom_priority: -300
         hooks: hook
 
+  dozzle:
+    from_dep_manifest: ./app-registry/dozzle/app.yml
+    instances:
+      dozzle:
+        role: logs-viewer
+        cpu: 500
+        ram: 512
+
+agents:
+  apps:
+    - dozzle
+
 nodes:
   master-server:
     profile: default

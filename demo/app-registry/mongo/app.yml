@@ -4,8 +4,8 @@ name: mongo
 connection: connection.json.mako
 
 image:
-  registry: docker
-  path: library/mongo
+  registry: local
+  path: infra_depence/mongo
   version: 7.0.18-rc0
 
 roles:

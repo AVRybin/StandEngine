@@ -4,8 +4,8 @@ name: redpanda
 connection: connection.json.mako
 
 image:
-  registry: docker
-  path: redpandadata/redpanda
+  registry: local
+  path: infra_depence/redpandadata/redpanda
   version: v25.3.7
 
 roles:

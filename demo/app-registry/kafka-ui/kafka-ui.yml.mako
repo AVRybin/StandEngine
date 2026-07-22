@@ -39,6 +39,8 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: ${instance.name}
+  labels:
+    stands-engine.io/managed: "true"
   annotations:
     ad.datadoghq.com/my-app.logs: '[{"source": "infra", "service": "${instance.name}"}]'
     % if instance.oom_priority is not None:
