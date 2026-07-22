@@ -24,10 +24,10 @@ def load_private_key(path_to_key: Path) -> str:
 
 def main(argv: list[str]) -> int:
     is_destroy, path_to_stand_manifest = parse_args(argv)
-    config = Config()
-    path_to_key = config.stand.path_to_key
 
     try:
+        config = Config()
+        path_to_key = config.stand.path_to_key
         operation = "destroy" if is_destroy else "create"
         stand_data = parse_manifest(path_to_stand_manifest, operation=operation)
         stand = build_stand(stand_data, config, private_key=load_private_key(path_to_key))
@@ -43,7 +43,11 @@ def main(argv: list[str]) -> int:
         with open(path_to_key, "w") as f:
             f.write(stand.key.private)
 
-    stand.up(diagnostic=True)
+    try:
+        stand.up(diagnostic=True)
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        print(exc)
+        return 1
     return 0
 
 

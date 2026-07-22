@@ -1,6 +1,8 @@
 version: 1
 name: mongo
 
+connection: connection.json.mako
+
 image:
   registry: docker
   path: library/mongo

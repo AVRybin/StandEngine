@@ -1,6 +1,8 @@
 version: 1
 name: redis
 
+connection: connection.json.mako
+
 image:
   registry: docker
   path: library/redis

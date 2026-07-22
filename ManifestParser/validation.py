@@ -76,6 +76,17 @@ def _validate_apps(apps: dict, registries: dict) -> dict[str, str]:
         _validate_templates(templates, f"{app_path}.templates")
         _validate_instances(instances, roles, app_name, instance_to_app, f"{app_path}.instances")
 
+        if "connection" in app:
+            _require_string_key(app, "connection", app_path)
+            connection_instance = _require_string_key(app, "connection_instance", app_path)
+            if connection_instance not in instances:
+                raise ValueError(
+                    f"{app_path}.connection_instance references instance "
+                    f"{connection_instance!r} outside app {app_name!r}"
+                )
+        elif "connection_instance" in app:
+            raise ValueError(f"{app_path}.connection_instance requires {app_path}.connection")
+
         if "preferences" in app:
             _require_mapping(app["preferences"], f"{app_path}.preferences")
 

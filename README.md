@@ -93,6 +93,11 @@ STAND__USER=
 STAND__PASSPHRASE=
 STAND__PATH_TO_KEY=
 STAND__PATH_TO_CONFIGSET=
+
+OUTPUT__CONSOLE=true
+OUTPUT__CONSOLE_SECRETS=false
+OUTPUT__FILE=false
+OUTPUT__FILE_PATH=
 ```
 
 Где:
@@ -103,6 +108,10 @@ STAND__PATH_TO_CONFIGSET=
 - `STAND__PASSPHRASE` - passphrase для Pulumi secrets provider.
 - `STAND__PATH_TO_KEY` - путь к приватному ключу стенда. Если файла нет, Stands Engine создаст ключ и сохранит его туда.
 - `STAND__PATH_TO_CONFIGSET` - локальный каталог для отрендеренных конфигов приложений и хуков.
+- `OUTPUT__CONSOLE` - печатать итоговый JSON с данными подключения после успешного `create`; по умолчанию `true`.
+- `OUTPUT__CONSOLE_SECRETS` - показывать настоящие password и URL в консоли; по умолчанию они заменяются на `***`.
+- `OUTPUT__FILE` - сохранять полный JSON с данными подключения в файл; по умолчанию `false`.
+- `OUTPUT__FILE_PATH` - каталог для итогового JSON. Обязателен, если `OUTPUT__FILE=true`.
 
 ### Секреты манифеста
 
@@ -245,7 +254,44 @@ templates:
 
 В стенде после этого остаются только параметры конкретного запуска: `preferences`, `instances`, `hooks`, ресурсы и размещение по `nodes`. Для каждого инстанса обязательны `cpu` в millicpu и `ram` в десятичных мегабайтах. Опциональный `oom_priority` задает Linux OOM score adjustment в диапазоне от `-1000` до `1000`.
 
-В demo registry-файле также оставлен `local` как пример приватного insecure registry с логином и паролем. Текущий demo-стенд его не использует: все demo-приложения ссылаются на `docker`.
+В demo registry-файле `local` показывает пример приватного insecure registry с логином и паролем; текущие demo-приложения используют его для загрузки образов.
+
+### Данные для подключения
+
+Приложение может объявить отдельный Mako-шаблон с данными для подключения. В `app.yml` хранится только путь к нему:
+
+```yaml
+connection: connection.json.mako
+```
+
+Относительный путь вычисляется от каталога `app.yml`. В манифесте стенда необходимо выбрать инстанс, IP-адрес и роль которого получит шаблон:
+
+```yaml
+apps:
+  redis:
+    from_dep_manifest: ./app-registry/redis/app.yml
+    connection_instance: master-redis
+```
+
+Пример `connection.json.mako`:
+
+```mako
+<%!
+import json
+%>{
+  "endpoint": ${json.dumps(node.private_ip)},
+  "port": 6379,
+  "credentials": {
+    "user": ${json.dumps(cluster.preferences.admin_user)},
+    "password": ${json.dumps(cluster.preferences.admin_pass)}
+  },
+  "url": ${json.dumps("redis://" + node.private_ip + ":6379")}
+}
+```
+
+Шаблон получает тот же контекст `node`, `instance`, `role`, `cluster` и `apps`, что и шаблоны запуска. Результатом должен быть один JSON-объект с непустыми `endpoint`, `credentials.user`, `credentials.password` и портом от `1` до `65535`. Поле `url` необязательно; внутри `credentials` можно добавлять параметры приложения.
+
+После успешного запуска всех приложений и hooks Stands Engine объединяет результаты по именам приложений. Консольный результат по умолчанию маскирует password и весь URL. Файловый результат всегда содержит реальные значения, создаётся с правами `0600` и поэтому должен храниться как секрет. Имя файла формируется как `<user>_<project>_<env>.json` внутри `OUTPUT__FILE_PATH`, по тому же правилу, что и имя каталога configset.
 
 Mako-шаблоны получают контекст:
 
@@ -266,6 +312,7 @@ Mako-шаблоны получают контекст:
 - что каждый registry имеет `url`, а `username` и `password` заданы вместе;
 - что образ приложения ссылается на существующий registry;
 - что `app.name` совпадает с ключом приложения;
+- что приложение с `connection` указывает принадлежащий ему `connection_instance`;
 - что инстансы ссылаются на существующие роли;
 - что для каждого инстанса заданы положительные целые `cpu` и `ram`, а опциональный `oom_priority` находится в диапазоне от `-1000` до `1000`;
 - что узлы ссылаются на существующие профили;
@@ -295,7 +342,6 @@ Mako-шаблоны получают контекст:
 - аккуратнее описать кастомизацию серверных профилей;
 - яснее описать границы provider/runtime слоев;
 - вынести секреты из демо и улучшить модель их передачи;
-- добавить вывод данных для подключения к поднятому стенду;
 - расширить документацию по шаблонам, хукам и переиспользованию приложений.
 
 ## Лицензия

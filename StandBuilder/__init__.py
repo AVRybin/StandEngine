@@ -38,6 +38,10 @@ def build_stand(stand_data: dict, config: Config, private_key: str = "") -> Stan
         clusters=clusters,
         path_folder_configset=config.stand.path_to_configset / f"{config.stand.user}_{state.project}_{state.env}",
         APP_RUNTIME=next(iter(runtimes)),
+        output_console=config.output.console,
+        output_console_secrets=config.output.console_secrets,
+        output_file=config.output.file,
+        output_file_directory=config.output.file_path,
     )
 
 
@@ -92,6 +96,8 @@ def _build_cluster(
         preferences=app_data.get("preferences", {}),
         instances_app=instances,
         paths_to_templates=templates,
+        connection_template=Path(app_data["connection"]) if "connection" in app_data else None,
+        connection_instance_name=app_data.get("connection_instance"),
     )
 
     return cluster, instances_by_name

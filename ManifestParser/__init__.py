@@ -212,10 +212,10 @@ def _resolve_path(path: str, base_dir: Path) -> Path:
 
 
 def _normalize_dep_resource_paths(data: dict, dep_manifest_dir: Path) -> None:
-    _normalize_template_and_hook_paths(data, dep_manifest_dir)
+    _normalize_template_hook_and_connection_paths(data, dep_manifest_dir)
 
 
-def _normalize_template_and_hook_paths(data: dict, base_dir: Path) -> None:
+def _normalize_template_hook_and_connection_paths(data: dict, base_dir: Path) -> None:
     templates = data.get("templates")
     if isinstance(templates, dict):
         for template in templates.values():
@@ -228,6 +228,9 @@ def _normalize_template_and_hook_paths(data: dict, base_dir: Path) -> None:
             if isinstance(instance, dict) and isinstance(instance.get("hooks"), str):
                 instance["hooks"] = str(_resolve_path(instance["hooks"], base_dir).resolve())
 
+    if isinstance(data.get("connection"), str):
+        data["connection"] = str(_resolve_path(data["connection"], base_dir).resolve())
+
 
 def _normalize_local_resource_paths(data: dict, base_dir: Path) -> None:
     node_profiles = data.get("node_profiles")
@@ -236,4 +239,4 @@ def _normalize_local_resource_paths(data: dict, base_dir: Path) -> None:
             if isinstance(profile, dict) and isinstance(profile.get("cloud-init"), str):
                 profile["cloud-init"] = str(_resolve_path(profile["cloud-init"], base_dir).resolve())
 
-    _normalize_template_and_hook_paths(data, base_dir)
+    _normalize_template_hook_and_connection_paths(data, base_dir)

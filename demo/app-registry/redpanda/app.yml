@@ -1,6 +1,8 @@
 version: 1
 name: redpanda
 
+connection: connection.json.mako
+
 image:
   registry: docker
   path: redpandadata/redpanda

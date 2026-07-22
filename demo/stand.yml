@@ -22,6 +22,7 @@ from_dep_manifest: ./app-registry/registries.yml
 apps:
   redpanda:
     from_dep_manifest: ./app-registry/redpanda/app.yml
+    connection_instance: redpanda-master
     preferences:
       admin_user: cool_admin
       admin_pass: !secret redpanda-admin-password
@@ -54,6 +55,7 @@ apps:
 
   redis:
     from_dep_manifest: ./app-registry/redis/app.yml
+    connection_instance: master-redis
     preferences:
       admin_user: cool_admin_ui
       admin_pass: !secret demo-admin-password
@@ -65,6 +67,7 @@ apps:
 
   mongo:
     from_dep_manifest: ./app-registry/mongo/app.yml
+    connection_instance: mongo-instance
     preferences:
       admin_user: cool_admin_ui
       admin_pass: !secret demo-admin-password

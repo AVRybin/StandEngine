@@ -1,4 +1,7 @@
 from dataclasses import dataclass, field, InitVar, replace
+from copy import deepcopy
+import json
+import os
 from pathlib import Path
 import re
 
@@ -83,6 +86,12 @@ class Stand:
     clusters_app: dict[str, ClusterApp] = field(default_factory=dict, init=False)
     instance_apps: dict[str, InstanceApp] = field(default_factory=dict, init=False)
     _registries: dict[str, ImageRegistry] = field(default_factory=dict, init=False)
+    _connection_templates: dict[str, Template] = field(default_factory=dict, init=False)
+
+    output_console: bool = True
+    output_console_secrets: bool = False
+    output_file: bool = False
+    output_file_directory: Path | None = None
 
     APP_RUNTIME: str = "podman"
 
@@ -115,6 +124,19 @@ class Stand:
                 raise ValueError(f"Registry {registry.url} has conflicting configuration")
 
             self._registries[registry.url] = registry
+
+            if cluster.connection_template is not None:
+                template_path = cluster.connection_template
+                if not template_path.is_file():
+                    raise ValueError(
+                        f"Connection template for app {cluster_name!r} does not exist: {template_path}"
+                    )
+                try:
+                    self._connection_templates[cluster_name] = Template(filename=str(template_path))
+                except Exception as exc:
+                    raise ValueError(
+                        f"Invalid connection template for app {cluster_name!r}: {template_path}: {exc}"
+                    ) from exc
 
             for instance in cluster.instances_app:
                 self.instance_apps[instance.name] = InstanceApp(
@@ -290,6 +312,119 @@ class Stand:
             apps=self.instance_apps,
         )
 
+    def render_connection(self, cluster: ClusterApp) -> dict:
+        instance_name = cluster.connection_instance_name
+        if instance_name is None:
+            raise ValueError(f"App {cluster.name!r} has no connection_instance")
+
+        instance = self.instance_apps[instance_name]
+        template = self._connection_templates[cluster.name]
+        try:
+            rendered = template.render(
+                node=instance.node,
+                instance=instance.app,
+                role=instance.app.role,
+                cluster=replace(cluster, preferences=Box(cluster.preferences)),
+                apps=self.instance_apps,
+            )
+        except Exception as exc:
+            raise ValueError(
+                f"Failed to render connection template for app {cluster.name!r} "
+                f"({cluster.connection_template}): {exc}"
+            ) from exc
+
+        try:
+            connection = json.loads(rendered)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Connection template for app {cluster.name!r} rendered invalid JSON "
+                f"({cluster.connection_template}): {exc}"
+            ) from exc
+
+        self.validate_connection(cluster.name, connection)
+        return connection
+
+    @staticmethod
+    def validate_connection(app_name: str, connection: object) -> None:
+        path = f"connection output for app {app_name!r}"
+        if not isinstance(connection, dict):
+            raise ValueError(f"{path} must be a JSON object")
+
+        allowed_fields = {"endpoint", "port", "credentials", "url"}
+        unknown_fields = sorted(set(connection) - allowed_fields)
+        if unknown_fields:
+            raise ValueError(f"{path} contains unknown fields: {unknown_fields}")
+
+        endpoint = connection.get("endpoint")
+        if not isinstance(endpoint, str) or not endpoint:
+            raise ValueError(f"{path}.endpoint must be a non-empty string")
+
+        port = connection.get("port")
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError(f"{path}.port must be an integer between 1 and 65535")
+
+        credentials = connection.get("credentials")
+        if not isinstance(credentials, dict):
+            raise ValueError(f"{path}.credentials must be a JSON object")
+        for field_name in ("user", "password"):
+            value = credentials.get(field_name)
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"{path}.credentials.{field_name} must be a non-empty string")
+
+        if "url" in connection:
+            url = connection["url"]
+            if not isinstance(url, str) or not url:
+                raise ValueError(f"{path}.url must be a non-empty string")
+
+    def build_connections(self) -> dict[str, dict]:
+        return {
+            cluster_name: self.render_connection(cluster)
+            for cluster_name, cluster in self.clusters_app.items()
+            if cluster.connection_template is not None
+        }
+
+    @staticmethod
+    def mask_connections(connections: dict[str, dict]) -> dict[str, dict]:
+        masked = deepcopy(connections)
+        for connection in masked.values():
+            connection["credentials"]["password"] = "***"
+            if "url" in connection:
+                connection["url"] = "***"
+        return masked
+
+    @staticmethod
+    def connections_json(connections: dict[str, dict]) -> str:
+        return json.dumps(connections, ensure_ascii=False, indent=2) + "\n"
+
+    def output_connections(self) -> None:
+        if not self.output_console and not self.output_file:
+            return
+
+        connections = self.build_connections()
+        if self.output_console:
+            console_connections = (
+                connections if self.output_console_secrets else self.mask_connections(connections)
+            )
+            print(self.connections_json(console_connections), end="")
+
+        if self.output_file:
+            if self.output_file_directory is None:
+                raise ValueError("OUTPUT__FILE_PATH is required when OUTPUT__FILE=true")
+            if self.output_file_directory.exists() and not self.output_file_directory.is_dir():
+                raise ValueError("OUTPUT__FILE_PATH must point to a directory")
+            self.output_file_directory.mkdir(parents=True, exist_ok=True)
+            output_file_path = self.output_file_directory / (
+                f"{self.state.owner}_{self.state.project}_{self.state.env}.json"
+            )
+            descriptor = os.open(
+                output_file_path,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                0o600,
+            )
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                output.write(self.connections_json(connections))
+
     def render_deploy_configset(self) -> None:
         Path(self.path_folder_configset).mkdir(parents=True, exist_ok=True)
 
@@ -381,3 +516,4 @@ class Stand:
         self.launch_apps()
 
         self.run_server_tasks(diagnostic)
+        self.output_connections()
