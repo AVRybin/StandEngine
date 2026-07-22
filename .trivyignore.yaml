@@ -1,0 +1,18 @@
+vulnerabilities:
+  - id: GHSA-hrxh-6v49-42gf
+    paths:
+      - usr/local/bin/pulumi
+      - usr/local/bin/pulumi-language-python
+      - opt/pulumi/plugins/resource-hcloud-v1.39.1/pulumi-resource-hcloud
+    expired_at: 2026-08-22
+    statement: >-
+      Pulumi 3.253.0 and hcloud 1.39.1 embed grpc 1.82.0.
+      Remove after an upstream release containing grpc 1.82.1 or newer.
+
+  - id: CVE-2026-39822
+    paths:
+      - opt/pulumi/plugins/resource-hcloud-v1.39.1/pulumi-resource-hcloud
+    expired_at: 2026-08-22
+    statement: >-
+      hcloud 1.39.1 is built with Go 1.26.4.
+      Remove after an upstream release built with Go 1.26.5 or newer.

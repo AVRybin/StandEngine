@@ -28,8 +28,8 @@ RUN uv sync --locked --no-dev --no-editable
 FROM python:3.14-slim-bookworm AS runtime
 
 ARG TARGETARCH
-ARG PULUMI_VERSION=3.245.0
-ARG PULUMI_HCLOUD_VERSION=1.38.0
+ARG PULUMI_VERSION=3.253.0
+ARG PULUMI_HCLOUD_VERSION=1.39.1
 
 ENV PATH="/opt/stands-engine/.venv/bin:/usr/local/bin:${PATH}" \
     PULUMI_HOME=/tmp/.pulumi \
@@ -49,7 +49,7 @@ RUN apt-get update \
          "https://get.pulumi.com/releases/sdk/pulumi-v${PULUMI_VERSION}-linux-${pulumi_arch}.tar.gz" \
          --output /tmp/pulumi.tar.gz \
     && tar -xzf /tmp/pulumi.tar.gz -C /tmp \
-    && mv /tmp/pulumi/pulumi /tmp/pulumi/pulumi-* /usr/local/bin/ \
+    && mv /tmp/pulumi/pulumi /tmp/pulumi/pulumi-language-python /usr/local/bin/ \
     && rm -rf /tmp/pulumi /tmp/pulumi.tar.gz
 
 RUN mkdir -p /opt/pulumi \
