@@ -7,5 +7,5 @@ registries:
   local:
     url: 10.1.0.11
     username: "robot$builder"
-    password: ixUbWuVuLzHkdO4M8JchpWq7OVKqN5XN
+    password: !secret registry-password
     insecure: true
