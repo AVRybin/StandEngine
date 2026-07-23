@@ -123,7 +123,11 @@ if [[ -t 0 && -t 1 ]]; then
 fi
 
 if [[ "$(uname -s)" == "Linux" ]]; then
-    run_args+=(--user "$(id -u):$(id -g)")
+    if [[ "${runtime}" == "podman" ]]; then
+        run_args+=(--user 0:0)
+    else
+        run_args+=(--user "$(id -u):$(id -g)")
+    fi
 fi
 
 if [[ -n "${env_file}" ]]; then
