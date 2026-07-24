@@ -19,11 +19,35 @@ if [[ -z "${DEFAULT_TOPIC_MIN_INSYNC_REPLICAS:-}" ]]; then
   fi
 fi
 
+declare -A TOPICS=()
+declare -A USERS=()
+declare -A ACL_GROUP_RULES=()
+declare -A ACL_TOPIC_RULES=()
+
+config_map_explicit=false
+if [[ -n "${CONFIG_MAP_FILE:-}" || -n "${ACL_MAP_FILE:-}" ]]; then
+  config_map_explicit=true
+fi
 CONFIG_MAP_FILE="${CONFIG_MAP_FILE:-${ACL_MAP_FILE:-./acl-map.sh}}"
-[[ -f "$CONFIG_MAP_FILE" ]] || { echo "Config map not found: $CONFIG_MAP_FILE"; exit 1; }
-# shellcheck source=/dev/null
-source "$CONFIG_MAP_FILE"
+if [[ -f "$CONFIG_MAP_FILE" ]]; then
+  # shellcheck source=/dev/null
+  source "$CONFIG_MAP_FILE" || {
+    echo "Failed to load config map: $CONFIG_MAP_FILE" >&2
+    exit 1
+  }
+elif [[ "$config_map_explicit" == "true" ]]; then
+  echo "Config map not found: $CONFIG_MAP_FILE" >&2
+  exit 1
+fi
 ACL_REPLACE="${ACL_REPLACE:-false}"
+
+if (( ${#TOPICS[@]} == 0 \
+      && ${#USERS[@]} == 0 \
+      && ${#ACL_GROUP_RULES[@]} == 0 \
+      && ${#ACL_TOPIC_RULES[@]} == 0 )); then
+  echo "No Redpanda migration actions configured; nothing to do"
+  exit 0
+fi
 
 require_positive_integer() {
   local name="$1"
