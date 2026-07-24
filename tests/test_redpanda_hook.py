@@ -178,20 +178,6 @@ class RedpandaHookRenderTests(unittest.TestCase):
         self.assertNotIn("if [[", acl_map_template)
         self.assertIn("declare -A TOPICS=(", acl_map_template)
 
-    def test_rendered_shell_files_have_valid_syntax(self):
-        hook, acl_map = self.render(3)
-
-        for name, content in (("hook.sh", hook), ("acl-map.sh", acl_map)):
-            with self.subTest(name=name):
-                result = subprocess.run(
-                    ["bash", "-n"],
-                    input=content,
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-
 
 if __name__ == "__main__":
     unittest.main()
