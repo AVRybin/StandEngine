@@ -4,16 +4,85 @@ RPK_USER="${cluster.preferences.admin_user}"
 RPK_PASS="${cluster.preferences.admin_pass}"
 
 RPK="podman exec ${instance.name} rpk"
+BROKER_COUNT=${cluster.instance_count}
 <%text>
 AUTH="-X user=${RPK_USER} -X pass=${RPK_PASS} -X sasl.mechanism=PLAIN"
 
 # ===== Config =====
+
+DEFAULT_TOPIC_REPLICATION_FACTOR="${DEFAULT_TOPIC_REPLICATION_FACTOR:-$(( BROKER_COUNT < 3 ? BROKER_COUNT : 3 ))}"
+if [[ -z "${DEFAULT_TOPIC_MIN_INSYNC_REPLICAS:-}" ]]; then
+  DEFAULT_TOPIC_MIN_INSYNC_REPLICAS=1
+  if [[ "$DEFAULT_TOPIC_REPLICATION_FACTOR" =~ ^[1-9][0-9]*$ ]] \
+     && (( 10#$DEFAULT_TOPIC_REPLICATION_FACTOR > 1 )); then
+    DEFAULT_TOPIC_MIN_INSYNC_REPLICAS=$(( 10#$DEFAULT_TOPIC_REPLICATION_FACTOR - 1 ))
+  fi
+fi
 
 CONFIG_MAP_FILE="${CONFIG_MAP_FILE:-${ACL_MAP_FILE:-./acl-map.sh}}"
 [[ -f "$CONFIG_MAP_FILE" ]] || { echo "Config map not found: $CONFIG_MAP_FILE"; exit 1; }
 # shellcheck source=/dev/null
 source "$CONFIG_MAP_FILE"
 ACL_REPLACE="${ACL_REPLACE:-false}"
+
+require_positive_integer() {
+  local name="$1"
+  local value="$2"
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "$name must be a positive integer, got: $value" >&2
+    return 1
+  fi
+}
+
+validate_cluster_config() {
+  require_positive_integer "BROKER_COUNT" "$BROKER_COUNT" || return 1
+  require_positive_integer \
+    "DEFAULT_TOPIC_REPLICATION_FACTOR" \
+    "$DEFAULT_TOPIC_REPLICATION_FACTOR" || return 1
+  require_positive_integer \
+    "DEFAULT_TOPIC_MIN_INSYNC_REPLICAS" \
+    "$DEFAULT_TOPIC_MIN_INSYNC_REPLICAS" || return 1
+
+  if (( 10#$DEFAULT_TOPIC_REPLICATION_FACTOR > 10#$BROKER_COUNT )); then
+    echo "DEFAULT_TOPIC_REPLICATION_FACTOR cannot exceed BROKER_COUNT" >&2
+    return 1
+  fi
+  if (( 10#$DEFAULT_TOPIC_MIN_INSYNC_REPLICAS > 10#$DEFAULT_TOPIC_REPLICATION_FACTOR )); then
+    echo "DEFAULT_TOPIC_MIN_INSYNC_REPLICAS cannot exceed DEFAULT_TOPIC_REPLICATION_FACTOR" >&2
+    return 1
+  fi
+
+  EXPECTED_BROKERS="${EXPECTED_BROKERS:-$BROKER_COUNT}"
+  require_positive_integer "EXPECTED_BROKERS" "$EXPECTED_BROKERS" || return 1
+  if (( 10#$EXPECTED_BROKERS > 10#$BROKER_COUNT )); then
+    echo "EXPECTED_BROKERS cannot exceed BROKER_COUNT" >&2
+    return 1
+  fi
+
+  local topic spec partitions replication retention min_isr extra
+  for topic in "${!TOPICS[@]}"; do
+    spec="${TOPICS[$topic]}"
+    IFS=':' read -r partitions replication retention min_isr extra <<< "$spec"
+    if [[ -n "$extra" || -z "$partitions" || -z "$retention" ]]; then
+      echo "Topic $topic has invalid config format: $spec" >&2
+      return 1
+    fi
+    require_positive_integer "Topic $topic replication" "$replication" || return 1
+    require_positive_integer "Topic $topic min.insync.replicas" "$min_isr" || return 1
+    if (( 10#$replication > 10#$BROKER_COUNT )); then
+      echo "Topic $topic replication cannot exceed BROKER_COUNT" >&2
+      return 1
+    fi
+    if (( 10#$replication > 10#$EXPECTED_BROKERS )); then
+      echo "Topic $topic replication cannot exceed EXPECTED_BROKERS" >&2
+      return 1
+    fi
+    if (( 10#$min_isr > 10#$replication )); then
+      echo "Topic $topic min.insync.replicas cannot exceed replication" >&2
+      return 1
+    fi
+  done
+}
 
 # How many rpk calls to run concurrently. Each call is mostly network wait,
 # so 8 is a safe default; tune via env if needed.
@@ -206,12 +275,6 @@ apply_topic_rules() {
 
 # ===== Wave 0 =====
 
-expected_brokers=3
-for spec in "${TOPICS[@]}"; do
-  IFS=':' read -r _ replication _ _ <<< "$spec"
-  (( replication > expected_brokers )) && expected_brokers="$replication"
-done
-EXPECTED_BROKERS="${EXPECTED_BROKERS:-$expected_brokers}"
 READY_TIMEOUT="${READY_TIMEOUT:-120}"
 READY_INTERVAL="${READY_INTERVAL:-2}"
 
@@ -244,6 +307,7 @@ wait_for_cluster() {
   return 1
 }
 
+validate_cluster_config || exit 1
 wait_for_cluster || exit 1
 
 # ===== Wave 1: topics + users (independent of each other) =====

@@ -35,3 +35,7 @@ class ClusterApp:
     paths_to_templates: dict[str, ConfigFile] = field(default_factory=list)
     connection_template: Path | None = None
     connection_instance_name: str | None = None
+
+    @property
+    def instance_count(self) -> int:
+        return len(self.instances_app)

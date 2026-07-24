@@ -6,7 +6,7 @@ import unittest
 from mako.template import Template
 import yaml
 
-from App import App, RoleApp
+from App import App, ClusterApp, RoleApp
 from ManifestParser.validation import validate_manifest
 from ShellCollect import ImageRegistry, ShellCollect
 from StandBuilder import _build_cluster
@@ -98,6 +98,21 @@ class AppResourceValidationTests(unittest.TestCase):
 
 
 class AppResourceBuildAndRenderTests(unittest.TestCase):
+    def test_cluster_instance_count_tracks_instances(self):
+        role = RoleApp(name="server", ports=[])
+        cluster = ClusterApp(name="redis", image=None)
+
+        self.assertEqual(cluster.instance_count, 0)
+
+        cluster.instances_app.extend(
+            [
+                App(name="redis-1", role=role, cpu=500, ram=512),
+                App(name="redis-2", role=role, cpu=500, ram=512),
+            ]
+        )
+
+        self.assertEqual(cluster.instance_count, 2)
+
     def test_builder_populates_app_resources(self):
         manifest = valid_manifest()
         app_data = manifest["apps"]["redis"]

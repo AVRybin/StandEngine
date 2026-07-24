@@ -80,6 +80,16 @@ apps:
         ram: 2048
         oom_priority: -300
         hooks: hook
+      mongo-instance-1:
+        role: member
+        cpu: 2000
+        ram: 2048
+        oom_priority: -300
+      mongo-instance-2:
+        role: member
+        cpu: 2000
+        ram: 2048
+        oom_priority: -300
 
   dozzle:
     from_dep_manifest: ./app-registry/dozzle/app.yml
@@ -106,8 +116,10 @@ nodes:
     profile: default
     apps:
       - redpanda-seed-1
+      - mongo-instance-1
 
   seed-server-2:
     profile: default
     apps:
       - redpanda-seed-2
+      - mongo-instance-2

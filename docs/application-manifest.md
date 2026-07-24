@@ -240,7 +240,7 @@ podlet --overwrite --unit-directory --name <instance> \
 | `node` | `private_ip`, `public_ip`, `app_runtime` |
 | `instance` | `name`, `cpu`, `ram`, `oom_priority`, `preferences`, `role` |
 | `role` | `name`, `ports`, `preferences` |
-| `cluster` | `name`, `image.full_name`, `preferences`, `instances_app` |
+| `cluster` | `name`, `image.full_name`, `preferences`, `instances_app`, `instance_count` |
 | `apps` | Все инстансы стенда по глобальному имени |
 
 Текущий инстанс:
@@ -252,6 +252,7 @@ ${instance.ram}
 ${role.name}
 ${node.private_ip}
 ${cluster.image.full_name}
+${cluster.instance_count}
 ${cluster.preferences.log_level}
 ${instance.preferences['shard']}
 ${role.preferences['container_port']}

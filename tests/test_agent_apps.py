@@ -189,6 +189,7 @@ class AgentAppsBuildTests(unittest.TestCase):
             [instance.name for instance in clusters["agent"].instances_app],
             ["agent--node-1", "agent--node-2"],
         )
+        self.assertEqual(clusters["agent"].instance_count, 2)
 
 
 if __name__ == "__main__":

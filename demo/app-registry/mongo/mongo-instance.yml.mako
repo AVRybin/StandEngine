@@ -116,7 +116,8 @@ spec:
 
           set -- "$@" \
             --replSet "$MONGO_REPLICA_SET_NAME" \
-            --keyFile /run/mongodb-keyfile/keyfile
+            --keyFile /run/mongodb-keyfile/keyfile \
+            --setParameter disableSplitHorizonIPCheck=true
           % endif
 
           exec /usr/local/bin/docker-entrypoint.sh "$@"

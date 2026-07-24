@@ -12,7 +12,7 @@ def application_version() -> str:
     try:
         return version("stands-engine")
     except PackageNotFoundError:
-        return "0.1.0"
+        return "0.1.1"
 
 
 def build_parser() -> argparse.ArgumentParser:
