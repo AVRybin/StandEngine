@@ -464,14 +464,21 @@ class Stand:
 
         for template_path in sorted(path for path in hook_path.rglob("*") if path.is_file()):
             relative_path = template_path.relative_to(hook_path)
-            if relative_path.name.endswith(".mako"):
+            is_mako_template = relative_path.suffix == ".mako"
+            if is_mako_template:
                 relative_path = relative_path.with_name(relative_path.name.removesuffix(".mako"))
 
-            content = self.render_app_template(template_path, instance)
+            content = (
+                self.render_app_template(template_path, instance)
+                if is_mako_template
+                else template_path.read_bytes()
+            )
             output_path = local_hook_dir / relative_path
             Path(output_path.parent).mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w") as f:
-                f.write(content)
+            if isinstance(content, str):
+                output_path.write_text(content, encoding="utf-8")
+            else:
+                output_path.write_bytes(content)
 
             self.add_upload_asset(instance, UploadAsset(
                 content=content,
