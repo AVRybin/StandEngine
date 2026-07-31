@@ -89,7 +89,9 @@ uv sync
 
 ```bash
 uv run stands-engine --help
-uv run stands-engine create demo/stand.yml
+uv run stands-engine \
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
 ```
 
 Прежний вариант `python main.py ...` остается совместимым.
@@ -109,8 +111,39 @@ podman build -f Containerfile -t stands-engine:local .
 Для повседневного запуска используйте launcher. Он автоматически выберет Podman или Docker, примонтирует текущий каталог только для чтения и сохранит ключи, configsets и connection output в `.stands-engine/`:
 
 ```bash
-./stands-engine --env-file dev.env create demo/stand.yml
-./stands-engine --env-file dev.env destroy demo/stand.yml
+./stands-engine \
+  --env-file dev.env \
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
+./stands-engine --env-file dev.env destroy demo/stand/stand.yml
+```
+
+Каталоги из других репозиториев подключаются как именованные read-only resources.
+Один resource можно использовать для нескольких hooks, указывая подкаталоги
+относительно его корня:
+
+```bash
+./stands-engine \
+  --env-file dev.env \
+  --resource project-assets=/home/user/projects/payment-service/deploy/assets \
+  create demo/stand/stand.yml
+```
+
+Манифест обращается к такому каталогу через переносимый URI
+`resource://project-assets/...`; launcher сам заменяет host path на путь внутри
+контейнера. `--resource` можно повторять. При прямом запуске Python CLI синтаксис
+тот же, но каталог читается непосредственно с host filesystem:
+
+```text
+project-assets/
+├── mongo/migrations/*.json
+└── redpanda/acl-map.sh
+```
+
+```bash
+uv run stands-engine \
+  --resource project-assets=/home/user/projects/payment-service/deploy/assets \
+  create demo/stand/stand.yml
 ```
 
 Явный выбор runtime или опубликованного image:
@@ -120,14 +153,16 @@ podman build -f Containerfile -t stands-engine:local .
   --runtime docker \
   --image registry.example.com/stands-engine:0.1.0 \
   --env-file dev.env \
-  create demo/stand.yml
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
 ```
 
 PowerShell на Windows, macOS или Linux:
 
 ```powershell
-.\stands-engine.ps1 create .\demo\stand.yml -EnvFile dev.env
-.\stands-engine.ps1 destroy .\demo\stand.yml -EnvFile dev.env
+.\stands-engine.ps1 create .\demo\stand\stand.yml -EnvFile dev.env `
+  -Resource "project-assets=.\demo\resources"
+.\stands-engine.ps1 destroy .\demo\stand\stand.yml -EnvFile dev.env
 ```
 
 Launcher переопределяет локальные абсолютные пути из env-файла контейнерными:
@@ -150,8 +185,10 @@ docker run --rm \
   -e OUTPUT__FILE_PATH=/data/output \
   -v "$PWD:/workspace:ro" \
   -v "$PWD/.stands-engine:/data" \
+  -v "$PWD/demo/resources:/resources/project-assets:ro" \
   registry.example.com/stands-engine:0.1.0 \
-  create /workspace/demo/stand.yml
+  --resource project-assets=/resources/project-assets \
+  create /workspace/demo/stand/stand.yml
 ```
 
 В CI передавайте секреты через защищенные переменные pipeline. Для воспроизводимого запуска используйте version tag или digest, а не изменяемый `latest`.
@@ -223,26 +260,30 @@ set +a
 
 ## Быстрый старт
 
-Демо-стенд находится в [demo/stand.yml](demo/stand.yml). Он поднимает Redpanda, Kafka UI, Redis и MongoDB на трех серверах и использует публичные Docker Hub образы.
+Демо разделено на описание стенда в [demo/stand](demo/stand) и подключаемые
+данные в [demo/resources](demo/resources). Стенд поднимает Redpanda, Kafka UI,
+Redis и MongoDB на трёх серверах и использует публичные Docker Hub образы.
 
 ```bash
 set -a
 source dev.env
 set +a
 
-python main.py create demo/stand.yml
+python main.py \
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
 ```
 
 Удаление стенда:
 
 ```bash
-python main.py destroy demo/stand.yml
+python main.py destroy demo/stand/stand.yml
 ```
 
 CLI сейчас намеренно небольшой:
 
 ```bash
-python main.py <create|destroy> <path_to_stand_manifest>
+python main.py [--resource NAME=PATH] <create|destroy> <path_to_stand_manifest>
 ```
 
 ## Манифест стенда

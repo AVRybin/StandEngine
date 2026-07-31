@@ -192,7 +192,7 @@ users:
 настраивает user systemd, linger, Podman socket и сеть `app-net`.
 
 Готовый поддерживаемый шаблон:
-[`demo/cloud-init.yaml.mako`](../demo/cloud-init.yaml.mako).
+[`demo/stand/cloud-init.yaml.mako`](../demo/stand/cloud-init.yaml.mako).
 
 ### Изменения cloud-init
 
@@ -250,7 +250,7 @@ source dev.env
 set +a
 
 uv run python -c \
-  'from pathlib import Path; from ManifestParser import parse_manifest; parse_manifest(Path("demo/stand.yml")); print("manifest: OK")'
+  'from pathlib import Path; from ManifestParser import parse_manifest; parse_manifest(Path("demo/stand/stand.yml"), resource_roots={"project-assets": Path("demo/resources")}); print("manifest: OK")'
 ```
 
 Команда не создаёт ресурсы. Она проверяет YAML, dependencies, secrets, связи и
@@ -273,27 +273,30 @@ provision layer содержит Pulumi preview.
 ### Локально
 
 ```bash
-uv run stands-engine create demo/stand.yml
-uv run stands-engine destroy demo/stand.yml
+uv run stands-engine --resource project-assets=demo/resources create demo/stand/stand.yml
+uv run stands-engine destroy demo/stand/stand.yml
 ```
 
 Совместимый вариант:
 
 ```bash
-python main.py create demo/stand.yml
+python main.py --resource project-assets=demo/resources create demo/stand/stand.yml
 ```
 
 CLI принимает только:
 
 ```text
-stands-engine <create|destroy> <manifest>
+stands-engine [--resource NAME=PATH] <create|destroy> <manifest>
 ```
 
 ### Через container launcher
 
 ```bash
-./stands-engine --env-file dev.env create demo/stand.yml
-./stands-engine --env-file dev.env destroy demo/stand.yml
+./stands-engine \
+  --env-file dev.env \
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
+./stands-engine --env-file dev.env destroy demo/stand/stand.yml
 ```
 
 Явный runtime/image:
@@ -303,7 +306,8 @@ stands-engine <create|destroy> <manifest>
   --runtime docker \
   --image registry.example.test/stands-engine:0.1.0 \
   --env-file dev.env \
-  create demo/stand.yml
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
 ```
 
 Launcher:
@@ -359,7 +363,7 @@ AWS-compatible variables. Hetzner token записывается в stack config
 ## 9. Lifecycle `destroy`
 
 ```bash
-uv run stands-engine destroy demo/stand.yml
+uv run stands-engine destroy demo/stand/stand.yml
 ```
 
 `destroy`:

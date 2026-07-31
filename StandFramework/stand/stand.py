@@ -449,25 +449,14 @@ class Stand:
         if instance.app.hook_path is None:
             return
 
-        hook_path = Path(instance.app.hook_path)
-        if not hook_path.is_dir():
-            raise Exception(f"Hook path is not a directory: {hook_path}")
-
-        hook_sh = hook_path / "hook.sh.mako"
-        if not hook_sh.is_file():
-            raise Exception(f"Hook path must contain hook.sh.mako: {hook_sh}")
+        hook_files = self._collect_hook_files(instance)
 
         for_group = instance.cluster.name + "---" + instance.app.name
         remote_hook_dir = f"/home/{self.app_user}/hook/{instance.app.name}"
         local_hook_dir = Path(self.path_folder_configset / f"{instance.cluster.name}--{instance.app.name}" / "hook")
         Path(local_hook_dir).mkdir(parents=True, exist_ok=True)
 
-        for template_path in sorted(path for path in hook_path.rglob("*") if path.is_file()):
-            relative_path = template_path.relative_to(hook_path)
-            is_mako_template = relative_path.suffix == ".mako"
-            if is_mako_template:
-                relative_path = relative_path.with_name(relative_path.name.removesuffix(".mako"))
-
+        for template_path, relative_path, is_mako_template in hook_files:
             content = (
                 self.render_app_template(template_path, instance)
                 if is_mako_template
@@ -496,6 +485,58 @@ class Stand:
             full_login=True,
         ))
 
+    def validate_hook_sources(self) -> None:
+        for instance in self.instance_apps.values():
+            if instance.app.hook_path is not None:
+                self._collect_hook_files(instance)
+
+    @staticmethod
+    def _collect_hook_files(instance: InstanceApp) -> list[tuple[Path, Path, bool]]:
+        hook_path = Path(instance.app.hook_path)
+        if not hook_path.is_dir():
+            raise ValueError(f"Hook path is not a directory: {hook_path}")
+
+        hook_sh = hook_path / "hook.sh.mako"
+        if not hook_sh.is_file():
+            raise ValueError(f"Hook path must contain hook.sh.mako: {hook_sh}")
+
+        collected: list[tuple[Path, Path, bool]] = []
+        destinations: dict[Path, Path] = {}
+
+        def add_tree(source_root: Path, destination_root: Path, render_mako: bool) -> None:
+            if not source_root.is_dir():
+                raise ValueError(f"Hook asset source is not a directory: {source_root}")
+
+            resolved_root = source_root.resolve()
+            for source_path in sorted(path for path in source_root.rglob("*") if path.is_file()):
+                resolved_source = source_path.resolve()
+                if not resolved_source.is_relative_to(resolved_root):
+                    raise ValueError(
+                        f"Hook asset path escapes its source directory: {source_path}"
+                    )
+
+                relative_path = source_path.relative_to(source_root)
+                is_mako_template = render_mako and relative_path.suffix == ".mako"
+                if is_mako_template:
+                    relative_path = relative_path.with_name(
+                        relative_path.name.removesuffix(".mako")
+                    )
+                output_path = destination_root / relative_path
+                if output_path in destinations:
+                    raise ValueError(
+                        f"Hook file collision for instance {instance.app.name!r} at "
+                        f"{output_path.as_posix()}: {destinations[output_path]} and {source_path}"
+                    )
+                destinations[output_path] = source_path
+                collected.append((source_path, output_path, is_mako_template))
+
+        add_tree(hook_path, Path(), render_mako=True)
+        for asset in instance.app.hook_assets:
+            destination = Path(*asset.dest.parts)
+            add_tree(asset.source, destination, render_mako=False)
+
+        return sorted(collected, key=lambda item: item[1].as_posix())
+
     def launch_apps(self) -> None:
         for _, instance in self.instance_apps.items():
             self.shell_script.extend(ShellCollect.up_container(
@@ -516,6 +557,7 @@ class Stand:
             self.add_app_hook(instance)
 
     def up(self, diagnostic: bool | SShExecutorDiagnostArgs = False):
+        self.validate_hook_sources()
         self.create_servers()
         self.render_deploy_configset()
         self.settings_runtime()

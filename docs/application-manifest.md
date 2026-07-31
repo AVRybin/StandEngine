@@ -395,8 +395,7 @@ url = f"redis://{quote(user, safe='')}:{quote(password, safe='')}@{endpoint}:637
 ```text
 bootstrap/
 ├── hook.sh.mako
-└── migration/
-    └── initial.json.mako
+└── helpers.sh
 ```
 
 Путь подключается к конкретному инстансу через `instances.<name>.hooks`.
@@ -414,6 +413,24 @@ bootstrap/
 Обычные, в том числе бинарные, ресурсы можно помещать в hook-каталог без
 суффикса `.mako`: движок сохраняет их имена и содержимое без изменений.
 
+Stand-specific миграции необязательно хранить рядом с переиспользуемым hook.
+Их можно подключить из прикладного проекта:
+
+```yaml
+hooks:
+  path: hook
+  assets:
+    - source: resource://project-assets/mongo/migrations
+      dest: migration
+```
+
+Resource задаётся при запуске через
+`--resource project-assets=/path/to/application/assets`. Один корень может
+обслуживать assets нескольких hooks. Движок рекурсивно добавляет
+содержимое `source` в `dest`. Внешние assets всегда копируются буквально, включая
+файлы с суффиксом `.mako`, и не могут перезаписывать файлы базового hook или
+другого asset.
+
 Надёжный hook должен:
 
 - завершаться при ошибке и возвращать ненулевой exit code;
@@ -422,8 +439,8 @@ bootstrap/
 - не печатать секреты;
 - использовать относительные пути от корня hook.
 
-Примеры: [`mongo/hook`](../demo/app-registry/mongo/hook) и
-[`redpanda/migration`](../demo/app-registry/redpanda/migration).
+Примеры: [`mongo/hook`](../demo/stand/app-registry/mongo/hook) и
+[`redpanda/migration`](../demo/stand/app-registry/redpanda/migration).
 
 ## 8. Проверка приложения
 
@@ -471,6 +488,6 @@ bootstrap/
 - [ ] Все templates успешно рендерятся и разбираются.
 
 Готовые эталоны находятся в
-[`demo/app-registry`](../demo/app-registry): Redis — простой stateful service,
+[`demo/stand/app-registry`](../demo/stand/app-registry): Redis — простой stateful service,
 Redpanda — несколько ролей, Kafka UI — зависимость, MongoDB — hook и connection,
 Dozzle — node agent.

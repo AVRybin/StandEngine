@@ -219,13 +219,43 @@ stand-specific preferences не следует одновременно объя
 | `ram` | Обязательный положительный integer в десятичных MB |
 | `oom_priority` | Необязательный integer `-1000..1000` |
 | `preferences` | Необязательный mapping параметров инстанса |
-| `hooks` | Необязательный путь к каталогу hook |
+| `hooks` | Необязательный путь либо конфигурация hook и внешних assets |
 
 Имена инстансов глобальны для всего стенда, включая разные приложения. Повтор
 запрещён.
 
 Относительный `hooks` разрешается от манифеста, в котором поле объявлено. Если
 поле находится в `stand.yml`, путь указывайте относительно `stand.yml`.
+
+Для переиспользуемого hook и миграций из прикладного проекта используется
+расширенная форма:
+
+```yaml
+instances:
+  mongo-main:
+    role: member
+    cpu: 1000
+    ram: 2048
+    hooks:
+      path: hook
+      assets:
+        - source: resource://project-assets/mongo/migrations
+          dest: migration
+```
+
+`path` задаёт базовый hook с обязательным `hook.sh.mako`. Каждый `source` должен
+указывать на каталог, а `dest` — на безопасный относительный POSIX-каталог внутри
+hook. Значение `.` добавляет файлы в корень hook. Содержимое assets копируется как
+есть и не обрабатывается Mako.
+
+Именованный корень передаётся одинаково launcher-у и локальному CLI:
+
+```bash
+./stands-engine --resource project-assets=/path/to/project/assets create stand.yml
+uv run stands-engine --resource project-assets=/path/to/project/assets create stand.yml
+```
+
+При `destroy` подключать resources не требуется.
 
 ### Connection instance
 
@@ -377,7 +407,7 @@ key или для list/mapping. Подставленное значение вс
 
 ## 11. Полный пример
 
-Полный актуальный пример находится в [`demo/stand.yml`](../demo/stand.yml). Он
+Полный актуальный пример находится в [`demo/stand/stand.yml`](../demo/stand/stand.yml). Он
 показывает:
 
 - общий node profile;
@@ -402,7 +432,7 @@ source dev.env
 set +a
 
 uv run python -c \
-  'from pathlib import Path; from ManifestParser import parse_manifest; parse_manifest(Path("demo/stand.yml")); print("manifest: OK")'
+  'from pathlib import Path; from ManifestParser import parse_manifest; parse_manifest(Path("demo/stand/stand.yml"), resource_roots={"project-assets": Path("demo/resources")}); print("manifest: OK")'
 ```
 
 Это раскрывает dependencies, разрешает secrets, нормализует пути и проверяет

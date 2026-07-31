@@ -9,6 +9,7 @@ Options:
   --runtime <docker|podman>  Container runtime (auto-detected by default)
   --image <reference>        OCI image (default: stands-engine:local)
   --env-file <path>          Environment file passed to the container
+  --resource <name=path>     Read-only directory for hook assets (repeatable)
   -h, --help                 Show this help
 
 Environment:
@@ -22,6 +23,9 @@ image="${STANDS_ENGINE_IMAGE:-stands-engine:local}"
 env_file=""
 operation=""
 manifest=""
+resource_names=()
+resource_paths=()
+resource_count=0
 
 while (($#)); do
     case "$1" in
@@ -35,6 +39,30 @@ while (($#)); do
             ;;
         --env-file)
             env_file="${2:?--env-file requires a value}"
+            shift 2
+            ;;
+        --resource)
+            resource_spec="${2:?--resource requires NAME=PATH}"
+            resource_name="${resource_spec%%=*}"
+            resource_path="${resource_spec#*=}"
+            if [[ "${resource_spec}" != *=* || ! "${resource_name}" =~ ^[A-Za-z][A-Za-z0-9_-]*$ || -z "${resource_path}" ]]; then
+                echo "Invalid resource '${resource_spec}'; expected NAME=PATH with a valid name." >&2
+                exit 2
+            fi
+            for ((index=0; index<resource_count; index++)); do
+                if [[ "${resource_names[$index]}" == "${resource_name}" ]]; then
+                    echo "Resource '${resource_name}' was specified more than once." >&2
+                    exit 2
+                fi
+            done
+            if [[ ! -d "${resource_path}" ]]; then
+                echo "Resource '${resource_name}' is not a directory: ${resource_path}" >&2
+                exit 1
+            fi
+            resolved_resource_path="$(cd "${resource_path}" && pwd -P)"
+            resource_names+=("${resource_name}")
+            resource_paths+=("${resolved_resource_path}")
+            resource_count=$((resource_count + 1))
             shift 2
             ;;
         -h|--help)
@@ -152,9 +180,22 @@ run_args+=(
     --env STAND__PATH_TO_KEY=/data/keys/id_ed25519
     --env STAND__PATH_TO_CONFIGSET=/data/configsets
     --env OUTPUT__FILE_PATH=/data/output
-    "${image}"
-    "${operation}"
-    "${container_manifest}"
 )
+
+for ((index=0; index<resource_count; index++)); do
+    resource_name="${resource_names[$index]}"
+    resource_mount="${resource_paths[$index]}:/resources/${resource_name}:ro"
+    if [[ "${runtime}" == "podman" && "$(uname -s)" == "Linux" ]]; then
+        resource_mount="${resource_mount},Z"
+    fi
+    run_args+=(--volume "${resource_mount}")
+done
+
+run_args+=("${image}")
+for ((index=0; index<resource_count; index++)); do
+    resource_name="${resource_names[$index]}"
+    run_args+=(--resource "${resource_name}=/resources/${resource_name}")
+done
+run_args+=("${operation}" "${container_manifest}")
 
 exec "${runtime}" "${run_args[@]}"

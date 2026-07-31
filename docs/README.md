@@ -28,11 +28,11 @@ Stands Engine разделяет инфраструктуру на три уро
 
 ## Примеры
 
-- [`demo/stand.yml`](../demo/stand.yml) — полный стенд с несколькими приложениями
+- [`demo/stand/stand.yml`](../demo/stand/stand.yml) — полный стенд с несколькими приложениями
   и нодами.
-- [`demo/app-registry`](../demo/app-registry) — готовые описания Redis, MongoDB,
+- [`demo/stand/app-registry`](../demo/stand/app-registry) — готовые описания Redis, MongoDB,
   Redpanda, Kafka UI и Dozzle.
-- [`demo/cloud-init.yaml.mako`](../demo/cloud-init.yaml.mako) — cloud-init для
+- [`demo/stand/cloud-init.yaml.mako`](../demo/stand/cloud-init.yaml.mako) — cloud-init для
   поддерживаемого Podman runtime.
 
 > `create` создаёт реальные облачные ресурсы. Перед запуском проверьте provider

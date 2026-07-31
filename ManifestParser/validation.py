@@ -1,3 +1,6 @@
+from pathlib import PurePosixPath
+
+
 def validate_manifest(manifest: dict) -> None:
     _require_mapping(manifest, "manifest")
 
@@ -182,7 +185,44 @@ def _validate_instances(
         if "preferences" in instance:
             _require_mapping(instance["preferences"], f"{instance_path}.preferences")
         if "hooks" in instance:
-            _require_string_key(instance, "hooks", instance_path)
+            _validate_hooks(instance["hooks"], f"{instance_path}.hooks")
+
+
+def _validate_hooks(hooks: object, path: str) -> None:
+    if isinstance(hooks, str):
+        if not hooks:
+            raise ValueError(f"{path} must be a non-empty string")
+        return
+
+    _require_mapping(hooks, path)
+    unknown_fields = sorted(set(hooks) - {"path", "assets"})
+    if unknown_fields:
+        raise ValueError(f"{path} contains unknown fields: {unknown_fields}")
+
+    _require_string_key(hooks, "path", path)
+    assets = hooks.get("assets", [])
+    if not isinstance(assets, list):
+        raise ValueError(f"{path}.assets must be a list")
+
+    for index, asset in enumerate(assets):
+        asset_path = f"{path}.assets[{index}]"
+        _require_mapping(asset, asset_path)
+        unknown_asset_fields = sorted(set(asset) - {"source", "dest"})
+        if unknown_asset_fields:
+            raise ValueError(
+                f"{asset_path} contains unknown fields: {unknown_asset_fields}"
+            )
+        _require_string_key(asset, "source", asset_path)
+        destination = _require_string_key(asset, "dest", asset_path)
+        destination_path = PurePosixPath(destination)
+        if (
+            "\\" in destination
+            or destination_path.is_absolute()
+            or ".." in destination_path.parts
+        ):
+            raise ValueError(
+                f"{asset_path}.dest must be a relative POSIX path without '..'"
+            )
 
 
 def _validate_node_profiles(node_profiles: dict) -> None:
