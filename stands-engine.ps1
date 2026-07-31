@@ -12,7 +12,7 @@ param(
 
     [string]$Image = $(if ($env:STANDS_ENGINE_IMAGE) { $env:STANDS_ENGINE_IMAGE } else { "stands-engine:local" }),
 
-    [string]$EnvFile,
+    [string[]]$EnvFile = @(),
 
     [string[]]$Resource = @()
 )
@@ -55,8 +55,11 @@ $dataDirectory = Join-Path $currentDirectory ".stands-engine"
 }
 
 $runArgs = @("run", "--rm")
-if ($EnvFile) {
-    $resolvedEnvFile = (Resolve-Path -LiteralPath $EnvFile).Path
+foreach ($envFilePath in $EnvFile) {
+    if (-not (Test-Path -LiteralPath $envFilePath -PathType Leaf)) {
+        throw "Environment file does not exist: $envFilePath"
+    }
+    $resolvedEnvFile = (Resolve-Path -LiteralPath $envFilePath).Path
     $runArgs += @("--env-file", $resolvedEnvFile)
 }
 

@@ -112,11 +112,16 @@ podman build -f Containerfile -t stands-engine:local .
 
 ```bash
 ./stands-engine \
-  --env-file dev.env \
+  --env-file common.env \
+  --env-file stands/dev.env \
   --resource project-assets=demo/resources \
   create demo/stand/stand.yml
-./stands-engine --env-file dev.env destroy demo/stand/stand.yml
+./stands-engine --env-file common.env --env-file stands/dev.env destroy demo/stand/stand.yml
 ```
+
+`--env-file` можно повторять. Файлы применяются слева направо, поэтому значения
+из более позднего файла переопределяют одноимённые значения из предыдущих. Это
+позволяет хранить общие настройки отдельно от настроек конкретного стенда.
 
 Каталоги из других репозиториев подключаются как именованные read-only resources.
 Один resource можно использовать для нескольких hooks, указывая подкаталоги
@@ -163,6 +168,14 @@ PowerShell на Windows, macOS или Linux:
 .\stands-engine.ps1 create .\demo\stand\stand.yml -EnvFile dev.env `
   -Resource "project-assets=.\demo\resources"
 .\stands-engine.ps1 destroy .\demo\stand\stand.yml -EnvFile dev.env
+```
+
+Несколько файлов в PowerShell передаются массивом в том же порядке приоритета:
+
+```powershell
+.\stands-engine.ps1 create .\demo\stand\stand.yml `
+  -EnvFile common.env,stands\dev.env `
+  -Resource "project-assets=.\demo\resources"
 ```
 
 Launcher переопределяет локальные абсолютные пути из env-файла контейнерными:

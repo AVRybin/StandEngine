@@ -293,11 +293,15 @@ stands-engine [--resource NAME=PATH] <create|destroy> <manifest>
 
 ```bash
 ./stands-engine \
-  --env-file dev.env \
+  --env-file common.env \
+  --env-file stands/dev.env \
   --resource project-assets=demo/resources \
   create demo/stand/stand.yml
-./stands-engine --env-file dev.env destroy demo/stand/stand.yml
+./stands-engine --env-file common.env --env-file stands/dev.env destroy demo/stand/stand.yml
 ```
+
+`--env-file` можно повторять: файлы загружаются слева направо, и значения из
+последующих файлов переопределяют значения из предыдущих.
 
 Явный runtime/image:
 
@@ -324,8 +328,8 @@ Launcher:
 PowerShell:
 
 ```powershell
-.\stands-engine.ps1 create .\demo\stand.yml -EnvFile dev.env
-.\stands-engine.ps1 destroy .\demo\stand.yml -EnvFile dev.env
+.\stands-engine.ps1 create .\demo\stand.yml -EnvFile common.env,stands\dev.env
+.\stands-engine.ps1 destroy .\demo\stand.yml -EnvFile common.env,stands\dev.env
 ```
 
 ## 8. Lifecycle `create`

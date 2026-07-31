@@ -8,7 +8,7 @@ Usage: ./stands-engine [options] <create|destroy> <manifest>
 Options:
   --runtime <docker|podman>  Container runtime (auto-detected by default)
   --image <reference>        OCI image (default: stands-engine:local)
-  --env-file <path>          Environment file passed to the container
+  --env-file <path>          Environment file passed to the container (repeatable)
   --resource <name=path>     Read-only directory for hook assets (repeatable)
   -h, --help                 Show this help
 
@@ -20,7 +20,8 @@ EOF
 
 runtime="${CONTAINER_RUNTIME:-}"
 image="${STANDS_ENGINE_IMAGE:-stands-engine:local}"
-env_file=""
+env_files=()
+env_file_count=0
 operation=""
 manifest=""
 resource_names=()
@@ -38,7 +39,8 @@ while (($#)); do
             shift 2
             ;;
         --env-file)
-            env_file="${2:?--env-file requires a value}"
+            env_files+=("${2:?--env-file requires a value}")
+            env_file_count=$((env_file_count + 1))
             shift 2
             ;;
         --resource)
@@ -158,14 +160,15 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     fi
 fi
 
-if [[ -n "${env_file}" ]]; then
+for ((index=0; index<env_file_count; index++)); do
+    env_file="${env_files[$index]}"
     if [[ ! -f "${env_file}" ]]; then
         echo "Environment file does not exist: ${env_file}" >&2
         exit 1
     fi
     env_file_dir="$(cd "$(dirname "${env_file}")" && pwd -P)"
     run_args+=(--env-file "${env_file_dir}/$(basename "${env_file}")")
-fi
+done
 
 workspace_mount="${workspace}:/workspace:ro"
 data_mount="${data_dir}:/data"
