@@ -109,7 +109,7 @@ Pulumi project берётся из `stand.project`, stack — из `stand.env`.
 
 ```bash
 set -a
-source dev.env
+source devBack.env
 set +a
 ```
 
@@ -247,7 +247,7 @@ credentials. Структурные secrets остаются обязатель�
 
 ```bash
 set -a
-source dev.env
+source devBack.env
 set +a
 
 uv run stands-engine \
@@ -309,10 +309,10 @@ stands-engine [--resource NAME=PATH] <validate|create|destroy> <manifest>
 ```bash
 ./stands-engine \
   --env-file common.env \
-  --env-file stands/dev.env \
+  --env-file stands/devBack.env \
   --resource project-assets=demo/resources \
   create demo/stand/stand.yml
-./stands-engine --env-file common.env --env-file stands/dev.env destroy demo/stand/stand.yml
+./stands-engine --env-file common.env --env-file stands/devBack.env destroy demo/stand/stand.yml
 ```
 
 `--env-file` можно повторять: файлы загружаются слева направо, и значения из
@@ -324,7 +324,7 @@ stands-engine [--resource NAME=PATH] <validate|create|destroy> <manifest>
 ./stands-engine \
   --runtime docker \
   --image registry.example.test/stands-engine:0.1.0 \
-  --env-file dev.env \
+  --env-file devBack.env \
   --resource project-assets=demo/resources \
   create demo/stand/stand.yml
 ```

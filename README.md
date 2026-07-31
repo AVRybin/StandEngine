@@ -116,10 +116,10 @@ podman build -f Containerfile -t stands-engine:local .
 ```bash
 ./stands-engine \
   --env-file common.env \
-  --env-file stands/dev.env \
+  --env-file stands/devBack.env \
   --resource project-assets=demo/resources \
   create demo/stand/stand.yml
-./stands-engine --env-file common.env --env-file stands/dev.env destroy demo/stand/stand.yml
+./stands-engine --env-file common.env --env-file stands/devBack.env destroy demo/stand/stand.yml
 ```
 
 `--env-file` можно повторять. Файлы применяются слева направо, поэтому значения
@@ -132,7 +132,7 @@ podman build -f Containerfile -t stands-engine:local .
 
 ```bash
 ./stands-engine \
-  --env-file dev.env \
+  --env-file devBack.env \
   --resource project-assets=/home/user/projects/payment-service/deploy/assets \
   create demo/stand/stand.yml
 ```
@@ -160,7 +160,7 @@ uv run stands-engine \
 ./stands-engine \
   --runtime docker \
   --image registry.example.com/stands-engine:0.1.0 \
-  --env-file dev.env \
+  --env-file devBack.env \
   --resource project-assets=demo/resources \
   create demo/stand/stand.yml
 ```
@@ -189,13 +189,13 @@ STAND__PATH_TO_CONFIGSET=/data/configsets
 OUTPUT__FILE_PATH=/data/output
 ```
 
-Сам `dev.env`, другие `*.env`, приватные ключи, `.git` и локальные результаты исключены из build context и не копируются в image.
+Сам `devBack.env`, другие `*.env`, приватные ключи, `.git` и локальные результаты исключены из build context и не копируются в image.
 
 ### Запуск без launcher
 
 ```bash
 docker run --rm \
-  --env-file dev.env \
+  --env-file devBack.env \
   -e STAND__PATH_TO_KEY=/data/keys/id_ed25519 \
   -e STAND__PATH_TO_CONFIGSET=/data/configsets \
   -e OUTPUT__FILE_PATH=/data/output \
@@ -268,7 +268,7 @@ export SECRET_REDIS_ADMIN_PASSWORD='change-me'
 
 ```bash
 set -a
-source dev.env
+source devBack.env
 set +a
 ```
 
@@ -282,7 +282,7 @@ Redis и MongoDB на трёх серверах и использует публ
 
 ```bash
 set -a
-source dev.env
+source devBack.env
 set +a
 
 python main.py \

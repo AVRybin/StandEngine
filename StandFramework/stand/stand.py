@@ -15,6 +15,7 @@ from InfraBaseLib.SShExecutor import InfraOperation, UploadAsset, SShExecutorDia
 from ShellCollect import ShellCollect, Port, Image, ImageRegistry
 from App import ClusterApp, App
 from StandFramework import ConfigBackend, StandState
+from config.errors import load_settings
 
 
 @dataclass(kw_only=True)
@@ -150,7 +151,7 @@ class Stand:
         if self.provision is not None:
             return self.provision
         if self.backend is None:
-            self.backend = ConfigBackend()
+            self.backend = load_settings(ConfigBackend)
         self.provision = MetalProvision(
             s3_bucket=self.backend.s3.bucket,
             s3_region=self.backend.s3.region,

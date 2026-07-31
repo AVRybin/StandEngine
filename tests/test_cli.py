@@ -8,6 +8,7 @@ import json
 import unittest
 
 import main
+from config.config import Config
 
 
 class CliTests(unittest.TestCase):
@@ -69,6 +70,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(stdout.getvalue(), "")
         self.assertEqual(stderr.getvalue(), "configuration failed\n")
+
+    def test_configuration_validation_error_is_formatted_for_cli(self):
+        stdout = StringIO()
+        stderr = StringIO()
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(main, "Config", Config),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            exit_code = main.main(["stands-engine", "validate", "stand.yml"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(
+            stderr.getvalue(),
+            "Configuration error:\n"
+            "- STAND__USER: required\n"
+            "- STAND__PASSPHRASE: required\n"
+            "- STAND__PATH_TO_KEY: required\n"
+            "- STAND__PATH_TO_CONFIGSET: required\n",
+        )
 
     def test_keyboard_interrupt_returns_130(self):
         stdout = StringIO()

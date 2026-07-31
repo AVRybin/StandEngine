@@ -428,7 +428,7 @@ names, credentials и размеры серверов.
 
 ```bash
 set -a
-source dev.env
+source devBack.env
 set +a
 
 uv run stands-engine \

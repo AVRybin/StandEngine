@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 from config.config import Config
+from config.errors import load_settings
 from ManifestParser import parse_manifest
 from StandBuilder import build_stand
 
@@ -77,7 +78,7 @@ def main(argv: list[str]) -> int:
 
     try:
         resource_roots = parse_resource_roots(args.resource)
-        config = Config()
+        config = load_settings(Config)
         path_to_key = config.stand.path_to_key
         operation = "destroy" if is_destroy else "create"
         stand_data = parse_manifest(
