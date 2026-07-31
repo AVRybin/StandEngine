@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: ./stands-engine [options] <create|destroy> <manifest>
+Usage: ./stands-engine [options] <validate|create|destroy> <manifest>
 
 Options:
   --runtime <docker|podman>  Container runtime (auto-detected by default)
@@ -71,7 +71,7 @@ while (($#)); do
             usage
             exit 0
             ;;
-        create|destroy)
+        validate|create|destroy)
             if [[ -n "${operation}" ]]; then
                 echo "Operation was specified more than once." >&2
                 usage >&2
@@ -144,9 +144,6 @@ case "${manifest_dir}" in
         ;;
 esac
 
-data_dir="${cwd}/.stands-engine"
-mkdir -p "${data_dir}/keys" "${data_dir}/configsets" "${data_dir}/output"
-
 run_args=(run --rm)
 if [[ -t 0 && -t 1 ]]; then
     run_args+=(-it)
@@ -171,19 +168,32 @@ for ((index=0; index<env_file_count; index++)); do
 done
 
 workspace_mount="${workspace}:/workspace:ro"
-data_mount="${data_dir}:/data"
 if [[ "${runtime}" == "podman" && "$(uname -s)" == "Linux" ]]; then
     workspace_mount="${workspace_mount},Z"
-    data_mount="${data_mount}:Z"
 fi
 
-run_args+=(
-    --volume "${workspace_mount}"
-    --volume "${data_mount}"
-    --env STAND__PATH_TO_KEY=/data/keys/id_ed25519
-    --env STAND__PATH_TO_CONFIGSET=/data/configsets
-    --env OUTPUT__FILE_PATH=/data/output
-)
+run_args+=(--volume "${workspace_mount}")
+
+if [[ "${operation}" == "validate" ]]; then
+    run_args+=(
+        --env STAND__PATH_TO_KEY=/tmp/stands-engine-validation/id_ed25519
+        --env STAND__PATH_TO_CONFIGSET=/tmp/stands-engine-validation/configsets
+        --env OUTPUT__FILE_PATH=/tmp/stands-engine-validation/output
+    )
+else
+    data_dir="${cwd}/.stands-engine"
+    mkdir -p "${data_dir}/keys" "${data_dir}/configsets" "${data_dir}/output"
+    data_mount="${data_dir}:/data"
+    if [[ "${runtime}" == "podman" && "$(uname -s)" == "Linux" ]]; then
+        data_mount="${data_mount}:Z"
+    fi
+    run_args+=(
+        --volume "${data_mount}"
+        --env STAND__PATH_TO_KEY=/data/keys/id_ed25519
+        --env STAND__PATH_TO_CONFIGSET=/data/configsets
+        --env OUTPUT__FILE_PATH=/data/output
+    )
+fi
 
 for ((index=0; index<resource_count; index++)); do
     resource_name="${resource_names[$index]}"

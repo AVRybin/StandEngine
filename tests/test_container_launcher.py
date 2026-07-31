@@ -191,6 +191,40 @@ class ContainerLauncherTests(unittest.TestCase):
             self.assertIn(f"Environment file does not exist: {missing_env}", result.stderr)
             self.assertFalse(arguments.exists())
 
+    def test_validate_does_not_create_host_data_directory(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "stand.yml"
+            manifest.write_text("stand: {}\n", encoding="utf-8")
+            binary, arguments = self.write_fake_runtime(root)
+
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(LAUNCHER),
+                    "--runtime",
+                    "docker",
+                    "validate",
+                    str(manifest),
+                ],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                env={
+                    **os.environ,
+                    "PATH": f"{binary}:{os.environ['PATH']}",
+                    "DOCKER_ARGS": str(arguments),
+                },
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((root / ".stands-engine").exists())
+            argv = arguments.read_text(encoding="utf-8").splitlines()
+            self.assertNotIn(f"{root / '.stands-engine'}:/data", argv)
+            self.assertIn("STAND__PATH_TO_KEY=/tmp/stands-engine-validation/id_ed25519", argv)
+            self.assertEqual(argv[-2:], ["validate", "/workspace/stand.yml"])
+
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is not installed")
     def test_powershell_multiple_env_files_are_forwarded_in_order(self):
         with TemporaryDirectory() as directory:

@@ -240,21 +240,35 @@ credentials. Структурные secrets остаются обязатель�
 `!secret` не шифрует configsets и connection files. Не публикуйте их в Git,
 логи или незащищённые CI artifacts.
 
-## 6. Статическая проверка
+## 6. Локальная проверка до provision
 
-До provision выполните полный parser:
+Перед каждым `create` движок автоматически выполняет локальный preflight. Ту же
+проверку можно запустить отдельно для разработки и CI:
 
 ```bash
 set -a
 source dev.env
 set +a
 
-uv run python -c \
-  'from pathlib import Path; from ManifestParser import parse_manifest; parse_manifest(Path("demo/stand/stand.yml"), resource_roots={"project-assets": Path("demo/resources")}); print("manifest: OK")'
+uv run stands-engine \
+  --resource project-assets=demo/resources \
+  validate demo/stand/stand.yml
 ```
 
-Команда не создаёт ресурсы. Она проверяет YAML, dependencies, secrets, связи и
-нормализует пути.
+Команда требует те же manifest secrets, что и `create`, но не требует Hetzner и
+S3 credentials. Она не создаёт ресурсы, SSH keys, configsets или connection
+files. При успехе stdout содержит одну NDJSON-запись:
+
+```json
+{"operation":"validate","status":"success"}
+```
+
+Preflight проверяет manifest dependencies и связи, наличие файлов, Mako-render
+cloud-init/application/hook/connection templates, структуру cloud-init и Pod
+YAML, connection JSON contract, upload destinations/modes и конфликты hostPort.
+Для рендера используются зарезервированные тестовые IP; реальные manifest
+preferences и secrets сохраняются, поэтому обнаруживаются ошибки экранирования.
+Независимые ошибки собираются в один отчёт на stderr без вывода secret values.
 
 Дополнительно вручную проверьте:
 
@@ -265,8 +279,9 @@ uv run python -c \
 - доступность registries;
 - возможность записи key/configset/output paths.
 
-Проект пока не предоставляет `preview` или `validate` через CLI, хотя внутренний
-provision layer содержит Pulumi preview.
+Проверка является локальной: доступность Hetzner network/image/server type/SSH
+key, S3 backend, registry и container images не проверяется. Pulumi preview не
+запускается.
 
 ## 7. Запуск
 
@@ -286,7 +301,7 @@ python main.py --resource project-assets=demo/resources create demo/stand/stand.
 CLI принимает только:
 
 ```text
-stands-engine [--resource NAME=PATH] <create|destroy> <manifest>
+stands-engine [--resource NAME=PATH] <validate|create|destroy> <manifest>
 ```
 
 ### Через container launcher
@@ -338,8 +353,8 @@ PowerShell:
 
 1. Загрузка внешней конфигурации.
 2. Parsing manifest, dependencies и secrets.
-3. Validation и сборка модели; разворачивание agents.
-4. Выбор/создание Pulumi stack в S3 backend.
+3. Validation, сборка модели, разворачивание agents и полный локальный preflight.
+4. Только после успешного preflight — выбор/создание Pulumi stack в S3 backend.
 5. Создание Hetzner servers, attachment к network, cloud-init и labels.
 6. Получение public/private IP и подготовка SSH inventory.
 7. Локальный рендеринг templates и hook assets.
@@ -470,7 +485,7 @@ stderr и не смешиваются с NDJSON в stdout. При ошибке �
 - путь/расширение manifest;
 - `from_dep_manifest` и локальные ресурсы;
 - список отсутствующих `SECRET_*`;
-- статический parser.
+- отчёт `stands-engine validate`.
 
 ### Pulumi/S3
 
@@ -507,7 +522,7 @@ ss -ltn
 
 ## Checklist перед `create`
 
-- [ ] Manifest прошёл статический parser.
+- [ ] `stands-engine validate` завершился успешно с актуальными secrets.
 - [ ] Проверено количество и стоимость Hetzner servers.
 - [ ] Token, network, SSH key, locations, images и server types существуют.
 - [ ] S3 backend доступен и сохранены identity/passphrase.

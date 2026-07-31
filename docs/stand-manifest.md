@@ -424,19 +424,22 @@ names, credentials и размеры серверов.
 
 ## Проверка манифеста
 
-Отдельной CLI-команды `validate` пока нет. Выполните parser напрямую:
+Для полной локальной проверки выполните:
 
 ```bash
 set -a
 source dev.env
 set +a
 
-uv run python -c \
-  'from pathlib import Path; from ManifestParser import parse_manifest; parse_manifest(Path("demo/stand/stand.yml"), resource_roots={"project-assets": Path("demo/resources")}); print("manifest: OK")'
+uv run stands-engine \
+  --resource project-assets=demo/resources \
+  validate demo/stand/stand.yml
 ```
 
-Это раскрывает dependencies, разрешает secrets, нормализует пути и проверяет
-связи, но не создаёт облачные ресурсы.
+Команда раскрывает dependencies, разрешает secrets, нормализует пути, проверяет
+связи и локально рендерит cloud-init, app, hook и connection Mako templates. Она
+не создаёт облачные ресурсы, ключи или configsets и не требует Hetzner/S3
+credentials.
 
 Валидатор проверяет:
 
@@ -448,6 +451,8 @@ uv run python -c \
 - глобальную уникальность инстансов;
 - profiles и размещение;
 - agents и конфликты генерируемых имён;
+- существование templates, Mako render и структуру результирующих YAML/JSON;
+- upload paths/modes и конфликты hostPort на одном узле;
 - обязательные secrets.
 
 После проверки YAML отдельно убедитесь, что provider resources реально

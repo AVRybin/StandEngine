@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet("create", "destroy")]
+    [ValidateSet("validate", "create", "destroy")]
     [string]$Operation,
 
     [Parameter(Mandatory = $true, Position = 1)]
@@ -49,11 +49,6 @@ else {
     $containerManifest = "/workspace/" + (Split-Path -Leaf $manifestPath)
 }
 
-$dataDirectory = Join-Path $currentDirectory ".stands-engine"
-@("keys", "configsets", "output") | ForEach-Object {
-    New-Item -ItemType Directory -Force -Path (Join-Path $dataDirectory $_) | Out-Null
-}
-
 $runArgs = @("run", "--rm")
 foreach ($envFilePath in $EnvFile) {
     if (-not (Test-Path -LiteralPath $envFilePath -PathType Leaf)) {
@@ -84,13 +79,26 @@ foreach ($resourceSpec in $Resource) {
     $resolvedResources += [PSCustomObject]@{ Name = $resourceName; Path = $resourcePath }
 }
 
-$runArgs += @(
-    "--volume", "${workspace}:/workspace:ro",
-    "--volume", "${dataDirectory}:/data",
-    "--env", "STAND__PATH_TO_KEY=/data/keys/id_ed25519",
-    "--env", "STAND__PATH_TO_CONFIGSET=/data/configsets",
-    "--env", "OUTPUT__FILE_PATH=/data/output"
-)
+$runArgs += @("--volume", "${workspace}:/workspace:ro")
+if ($Operation -eq "validate") {
+    $runArgs += @(
+        "--env", "STAND__PATH_TO_KEY=/tmp/stands-engine-validation/id_ed25519",
+        "--env", "STAND__PATH_TO_CONFIGSET=/tmp/stands-engine-validation/configsets",
+        "--env", "OUTPUT__FILE_PATH=/tmp/stands-engine-validation/output"
+    )
+}
+else {
+    $dataDirectory = Join-Path $currentDirectory ".stands-engine"
+    @("keys", "configsets", "output") | ForEach-Object {
+        New-Item -ItemType Directory -Force -Path (Join-Path $dataDirectory $_) | Out-Null
+    }
+    $runArgs += @(
+        "--volume", "${dataDirectory}:/data",
+        "--env", "STAND__PATH_TO_KEY=/data/keys/id_ed25519",
+        "--env", "STAND__PATH_TO_CONFIGSET=/data/configsets",
+        "--env", "OUTPUT__FILE_PATH=/data/output"
+    )
+}
 
 $engineArgs = @()
 foreach ($resource in $resolvedResources) {

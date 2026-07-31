@@ -22,7 +22,7 @@ def application_version() -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="stands-engine",
-        description="Create or destroy an infrastructure stand from a YAML manifest.",
+        description="Validate, create, or destroy an infrastructure stand from a YAML manifest.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {application_version()}")
     parser.add_argument(
@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME=PATH",
         help="named local directory available to hook assets (repeatable)",
     )
-    parser.add_argument("operation", choices=("create", "destroy"))
+    parser.add_argument("operation", choices=("validate", "create", "destroy"))
     parser.add_argument("manifest", type=Path, help="path to the stand YAML manifest")
     return parser
 
@@ -72,6 +72,7 @@ def load_private_key(path_to_key: Path) -> str:
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv[1:])
     is_destroy = args.operation == "destroy"
+    is_validate = args.operation == "validate"
     path_to_stand_manifest = args.manifest
 
     try:
@@ -86,10 +87,17 @@ def main(argv: list[str]) -> int:
         )
         stand = build_stand(stand_data, config, private_key=load_private_key(path_to_key))
 
+        if is_validate:
+            stand.validate_preflight()
+            print(stand.result_ndjson({"operation": "validate", "status": "success"}), end="")
+            return 0
+
         if is_destroy:
             stand.destroy()
             stand.output_destroy_result()
             return 0
+
+        stand.validate_preflight()
 
         if not path_to_key.exists():
             with open(path_to_key, "w") as f:

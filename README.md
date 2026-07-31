@@ -91,6 +91,9 @@ uv sync
 uv run stands-engine --help
 uv run stands-engine \
   --resource project-assets=demo/resources \
+  validate demo/stand/stand.yml
+uv run stands-engine \
+  --resource project-assets=demo/resources \
   create demo/stand/stand.yml
 ```
 
@@ -296,7 +299,7 @@ python main.py destroy demo/stand/stand.yml
 CLI сейчас намеренно небольшой:
 
 ```bash
-python main.py [--resource NAME=PATH] <create|destroy> <path_to_stand_manifest>
+python main.py [--resource NAME=PATH] <validate|create|destroy> <path_to_stand_manifest>
 ```
 
 ## Манифест стенда
@@ -466,7 +469,7 @@ import json
 {"id_stand":"owner_demo_test","operation":"destroy","status":"success"}
 ```
 
-Во время `create`/`destroy` stdout зарезервирован для NDJSON-результатов. Диагностика Pulumi, PyInfra и сообщения об ошибках отправляются в stderr. Коды завершения: `0` — успех, `1` — ошибка конфигурации или выполнения, `2` — неверный CLI-вызов, `130` — прерывание `Ctrl+C`. При ошибке stdout остаётся пустым.
+Во время `validate`/`create`/`destroy` stdout зарезервирован для NDJSON-результатов. Успешный `validate` печатает `{"operation":"validate","status":"success"}`. Диагностика preflight, Pulumi, PyInfra и сообщения об ошибках отправляются в stderr. Коды завершения: `0` — успех, `1` — ошибка конфигурации или выполнения, `2` — неверный CLI-вызов, `130` — прерывание `Ctrl+C`. При ошибке stdout остаётся пустым.
 
 Mako-шаблоны получают контекст:
 

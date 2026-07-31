@@ -446,14 +446,12 @@ Resource задаётся при запуске через
 
 До реального стенда:
 
-1. Отрендерите каждый Mako-шаблон с тестовыми `node`, `instance`, `role`,
-   `cluster`, `apps`.
-2. Разберите pod через `yaml.safe_load`.
-3. Проверьте image, имена, resources, volumes и ports.
-4. Разберите connection через `json.loads` и проверьте контракт.
-5. Проверьте hook повторным выполнением.
-6. Подключите приложение к минимальному тестовому `stand.yml` и выполните
-   статическую проверку из [stand guide](stand-manifest.md#проверка-манифеста).
+1. Подключите приложение к минимальному тестовому `stand.yml` и выполните
+   `stands-engine validate` из [stand guide](stand-manifest.md#проверка-манифеста).
+2. Проверьте в отрендерованном Pod image, имена, resources, volumes и ports,
+   специфичные для приложения.
+3. Отдельно протестируйте фактическое выполнение hook и поведение приложения —
+   локальный preflight проверяет Mako render, но не исполняет shell-команды.
 
 Подход к unit-тесту рендеринга показан в
 [`tests/test_app_resources.py`](../tests/test_app_resources.py).

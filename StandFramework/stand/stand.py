@@ -73,7 +73,7 @@ class Stand:
     state: StandState
     path_folder_configset: Path
     
-    provision: MetalProvision = field(init=False)
+    provision: MetalProvision | None = field(init=False, default=None)
     void_provision: Callable[[], None] = field(init=False)
     inventory: dict[str, list[str]] = field(default_factory=dict, init=False)
     node_groups: dict[str, str] = field(default_factory=dict, init=False)
@@ -87,6 +87,7 @@ class Stand:
     instance_apps: dict[str, InstanceApp] = field(default_factory=dict, init=False)
     _registries: dict[str, ImageRegistry] = field(default_factory=dict, init=False)
     _connection_templates: dict[str, Template] = field(default_factory=dict, init=False)
+    _preflight_validated: bool = field(default=False, init=False)
 
     output_console: bool = True
     output_console_secrets: bool = False
@@ -99,21 +100,7 @@ class Stand:
         self.instance_apps = {}
         self.key = Keys(private=private_key)
 
-        if self.backend is None:
-            self.backend = ConfigBackend()
-        
-        self.provision = MetalProvision(
-            s3_bucket=self.backend.s3.bucket,
-            s3_region=self.backend.s3.region,
-            s3_endpoint=self.backend.s3.endpoint,
-            passphrase=self.state.passphrase,
-            s3_access_key=self.backend.s3.access_key,
-            s3_secret_key=self.backend.s3.secret_key,
-            stand_name=self.state.env,
-            project_name=self.state.project,
-            user_name=self.state.owner,
-            provider_token=self.backend.hcloud.token,
-        )
+        self.provision = None
 
         self.clusters_app = {cluster.name: cluster for cluster in clusters}
 
@@ -124,19 +111,6 @@ class Stand:
                 raise ValueError(f"Registry {registry.url} has conflicting configuration")
 
             self._registries[registry.url] = registry
-
-            if cluster.connection_template is not None:
-                template_path = cluster.connection_template
-                if not template_path.is_file():
-                    raise ValueError(
-                        f"Connection template for app {cluster_name!r} does not exist: {template_path}"
-                    )
-                try:
-                    self._connection_templates[cluster_name] = Template(filename=str(template_path))
-                except Exception as exc:
-                    raise ValueError(
-                        f"Invalid connection template for app {cluster_name!r}: {template_path}: {exc}"
-                    ) from exc
 
             for instance in cluster.instances_app:
                 self.instance_apps[instance.name] = InstanceApp(
@@ -172,6 +146,25 @@ class Stand:
 
         self.void_provision = designer.get_program(servers_for_provision)
 
+    def ensure_provision(self) -> MetalProvision:
+        if self.provision is not None:
+            return self.provision
+        if self.backend is None:
+            self.backend = ConfigBackend()
+        self.provision = MetalProvision(
+            s3_bucket=self.backend.s3.bucket,
+            s3_region=self.backend.s3.region,
+            s3_endpoint=self.backend.s3.endpoint,
+            passphrase=self.state.passphrase,
+            s3_access_key=self.backend.s3.access_key,
+            s3_secret_key=self.backend.s3.secret_key,
+            stand_name=self.state.env,
+            project_name=self.state.project,
+            user_name=self.state.owner,
+            provider_token=self.backend.hcloud.token,
+        )
+        return self.provision
+
     def build_node_labels(self, node: Node) -> dict[str, str]:
         labels = {
             "stand_name": self.sanitize_label_value(self.state.env),
@@ -195,10 +188,10 @@ class Stand:
 
 
     def destroy(self) -> None:
-        self.provision.destroy(self.void_provision)
+        self.ensure_provision().destroy(self.void_provision)
 
     def create_servers(self) -> None:
-        result = self.provision.create(self.void_provision)
+        result = self.ensure_provision().create(self.void_provision)
 
         for name, node in self.nodes.items():
             public_ip = result.outputs.get(f"server_{name}_public_ip")
@@ -318,7 +311,10 @@ class Stand:
             raise ValueError(f"App {cluster.name!r} has no connection_instance")
 
         instance = self.instance_apps[instance_name]
-        template = self._connection_templates[cluster.name]
+        template = self._connection_templates.get(cluster.name)
+        if template is None:
+            template = Template(filename=str(cluster.connection_template))
+            self._connection_templates[cluster.name] = template
         try:
             rendered = template.render(
                 node=instance.node,
@@ -510,6 +506,12 @@ class Stand:
             if instance.app.hook_path is not None:
                 self._collect_hook_files(instance)
 
+    def validate_preflight(self) -> None:
+        from StandFramework.preflight import StandPreflightValidator
+
+        StandPreflightValidator(self).validate()
+        self._preflight_validated = True
+
     @staticmethod
     def _collect_hook_files(instance: InstanceApp) -> list[tuple[Path, Path, bool]]:
         hook_path = Path(instance.app.hook_path)
@@ -577,8 +579,8 @@ class Stand:
             self.add_app_hook(instance)
 
     def up(self, diagnostic: bool | SShExecutorDiagnostArgs = False):
-        self.validate_result_contract()
-        self.validate_hook_sources()
+        if not getattr(self, "_preflight_validated", False):
+            self.validate_preflight()
         self.create_servers()
         self.render_deploy_configset()
         self.settings_runtime()

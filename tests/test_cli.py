@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
+import json
 import unittest
 
 import main
@@ -99,6 +100,53 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         stand.destroy.assert_called_once_with()
         stand.output_destroy_result.assert_called_once_with()
+
+    def test_validate_runs_preflight_and_emits_success_ndjson(self):
+        with TemporaryDirectory() as directory:
+            private_key = Path(directory) / "id_ed25519"
+            config = SimpleNamespace(stand=SimpleNamespace(path_to_key=private_key))
+            stand = unittest.mock.Mock()
+            stand.result_ndjson.side_effect = lambda value: json.dumps(value) + "\n"
+            stdout = StringIO()
+
+            with (
+                patch.object(main, "Config", return_value=config),
+                patch.object(main, "parse_manifest", return_value={}) as parse_manifest,
+                patch.object(main, "build_stand", return_value=stand),
+                redirect_stdout(stdout),
+            ):
+                exit_code = main.main(["stands-engine", "validate", "stand.yml"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout.getvalue()), {"operation": "validate", "status": "success"})
+        parse_manifest.assert_called_once_with(
+            Path("stand.yml"), operation="create", resource_roots={}
+        )
+        stand.validate_preflight.assert_called_once_with()
+        stand.up.assert_not_called()
+        stand.destroy.assert_not_called()
+
+    def test_create_preflight_failure_happens_before_key_write_and_up(self):
+        with TemporaryDirectory() as directory:
+            private_key = Path(directory) / "id_ed25519"
+            config = SimpleNamespace(stand=SimpleNamespace(path_to_key=private_key))
+            stand = unittest.mock.Mock()
+            stand.validate_preflight.side_effect = ValueError("preflight failed")
+            stderr = StringIO()
+
+            with (
+                patch.object(main, "Config", return_value=config),
+                patch.object(main, "parse_manifest", return_value={}),
+                patch.object(main, "build_stand", return_value=stand),
+                redirect_stderr(stderr),
+            ):
+                exit_code = main.main(["stands-engine", "create", "stand.yml"])
+
+            self.assertFalse(private_key.exists())
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stderr.getvalue(), "preflight failed\n")
+        stand.up.assert_not_called()
 
     def test_failed_destroy_returns_1_without_result(self):
         with TemporaryDirectory() as directory:
