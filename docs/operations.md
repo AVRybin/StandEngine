@@ -362,11 +362,13 @@ PowerShell:
 9. Настройка Podman, firewalld, app user systemd, socket и `app-net`.
 10. Registry login, параллельный pull images и logout.
 11. Загрузка templates.
-12. Генерация Podlet units и запуск user services.
-13. Ожидание active service и каждого role port: до 30 попыток с интервалом
-    2 секунды.
-14. Выполнение post-start hooks.
-15. Рендеринг и публикация connection output.
+12. Последовательное развёртывание инстансов в порядке верхнеуровневого `apps`,
+    затем `instances` внутри приложения. Для каждого инстанса движок генерирует
+    Podlet unit и запускает user service, ожидает active service и каждый role
+    port (до 30 попыток с интервалом 2 секунды), выполняет post-start hook и
+    только затем переходит к следующему инстансу. Порядок `nodes.<node>.apps`
+    задаёт размещение и на эту последовательность не влияет.
+13. Рендеринг и публикация connection output.
 
 Движок проверяет service/listen socket, но не HTTP readiness и не dependency
 graph. Hooks сложных кластеров должны иметь собственный retry/timeout.
