@@ -169,5 +169,10 @@ class SShExecutor:
                 )
 
             run_ops(self.state)
+            if self.state.failed_hosts:
+                failed_hosts = ", ".join(
+                    sorted(host.name for host in self.state.failed_hosts)
+                )
+                raise RuntimeError(f"PyInfra failed on hosts: {failed_hosts}")
         finally:
             disconnect_all(self.state)

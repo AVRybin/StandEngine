@@ -383,6 +383,15 @@ class Stand:
             if cluster.connection_template is not None
         }
 
+    @property
+    def id_stand(self) -> str:
+        return Path(self.path_folder_configset).name
+
+    def validate_result_contract(self) -> None:
+        cluster = self.clusters_app.get("id_stand")
+        if cluster is not None and cluster.connection_template is not None:
+            raise ValueError("Connection app name 'id_stand' is reserved for result output")
+
     @staticmethod
     def mask_connections(connections: dict[str, dict]) -> dict[str, dict]:
         masked = deepcopy(connections)
@@ -393,8 +402,12 @@ class Stand:
         return masked
 
     @staticmethod
-    def connections_json(connections: dict[str, dict]) -> str:
-        return json.dumps(connections, ensure_ascii=False, indent=2) + "\n"
+    def result_ndjson(result: dict) -> str:
+        return json.dumps(result, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+    @staticmethod
+    def result_json(result: dict) -> str:
+        return json.dumps(result, ensure_ascii=False, indent=2) + "\n"
 
     def output_connections(self) -> None:
         if not self.output_console and not self.output_file:
@@ -405,7 +418,8 @@ class Stand:
             console_connections = (
                 connections if self.output_console_secrets else self.mask_connections(connections)
             )
-            print(self.connections_json(console_connections), end="")
+            console_result = {"id_stand": self.id_stand, **console_connections}
+            print(self.result_ndjson(console_result), end="")
 
         if self.output_file:
             if self.output_file_directory is None:
@@ -413,9 +427,7 @@ class Stand:
             if self.output_file_directory.exists() and not self.output_file_directory.is_dir():
                 raise ValueError("OUTPUT__FILE_PATH must point to a directory")
             self.output_file_directory.mkdir(parents=True, exist_ok=True)
-            output_file_path = self.output_file_directory / (
-                f"{self.state.owner}_{self.state.project}_{self.state.env}.json"
-            )
+            output_file_path = self.output_file_directory / f"{self.id_stand}.json"
             descriptor = os.open(
                 output_file_path,
                 os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
@@ -423,7 +435,15 @@ class Stand:
             )
             os.fchmod(descriptor, 0o600)
             with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-                output.write(self.connections_json(connections))
+                output.write(self.result_json({"id_stand": self.id_stand, **connections}))
+
+    def output_destroy_result(self) -> None:
+        result = {
+            "id_stand": self.id_stand,
+            "operation": "destroy",
+            "status": "success",
+        }
+        print(self.result_ndjson(result), end="")
 
     def render_deploy_configset(self) -> None:
         Path(self.path_folder_configset).mkdir(parents=True, exist_ok=True)
@@ -557,6 +577,7 @@ class Stand:
             self.add_app_hook(instance)
 
     def up(self, diagnostic: bool | SShExecutorDiagnostArgs = False):
+        self.validate_result_contract()
         self.validate_hook_sources()
         self.create_servers()
         self.render_deploy_configset()

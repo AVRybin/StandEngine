@@ -85,24 +85,24 @@ def main(argv: list[str]) -> int:
             resource_roots=resource_roots,
         )
         stand = build_stand(stand_data, config, private_key=load_private_key(path_to_key))
-    except (FileNotFoundError, TypeError, ValueError) as exc:
-        print(exc)
-        return 1
 
-    if is_destroy:
-        stand.destroy()
-        return 0
+        if is_destroy:
+            stand.destroy()
+            stand.output_destroy_result()
+            return 0
 
-    if not path_to_key.exists():
-        with open(path_to_key, "w") as f:
-            f.write(stand.key.private)
+        if not path_to_key.exists():
+            with open(path_to_key, "w") as f:
+                f.write(stand.key.private)
 
-    try:
         stand.up(diagnostic=True)
-    except (FileNotFoundError, TypeError, ValueError) as exc:
-        print(exc)
+        return 0
+    except KeyboardInterrupt:
+        print("Interrupted", file=sys.stderr)
+        return 130
+    except Exception as exc:
+        print(exc, file=sys.stderr)
         return 1
-    return 0
 
 
 def cli() -> int:

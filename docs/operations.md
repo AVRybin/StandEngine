@@ -372,6 +372,8 @@ uv run stands-engine destroy demo/stand/stand.yml
 2. Допускает неразрешённые app/registry secrets.
 3. Выбирает существующий Pulumi stack.
 4. Выполняет `pulumi destroy`.
+5. После успешного удаления печатает NDJSON-запись с `id_stand`,
+   `operation: "destroy"` и `status: "success"`.
 
 Команда не удаляет локальные SSH keys, configsets, connection files, S3 stack
 metadata или bucket.
@@ -409,14 +411,26 @@ Connection templates определяются приложениями, но п�
 
 | Переменная | Default | Поведение |
 |---|---|---|
-| `OUTPUT__CONSOLE` | `true` | Печатает общий JSON после успешного create |
+| `OUTPUT__CONSOLE` | `true` | Печатает одну NDJSON-запись после успешного create |
 | `OUTPUT__CONSOLE_SECRETS` | `false` | Показывает настоящие password и URL |
-| `OUTPUT__FILE` | `false` | Сохраняет полный JSON |
+| `OUTPUT__FILE` | `false` | Сохраняет полный форматированный JSON |
 | `OUTPUT__FILE_PATH` | — | Каталог, обязательный при file output |
 
 Консоль по умолчанию заменяет `credentials.password` и `url` на `***`.
 Дополнительные secret-подобные поля внутри `credentials` автоматически не
 маскируются.
+
+Во время `create`/`destroy` stdout содержит только компактные NDJSON-результаты —
+по одному JSON-объекту на строку. Для `create` первым полем идёт `id_stand`,
+равный имени configset-каталога, а connection-приложения остаются
+верхнеуровневыми полями:
+
+```json
+{"id_stand":"owner_demo_test","redis":{"endpoint":"10.0.0.2","port":6379,"credentials":{"user":"admin","password":"***"},"url":"***"}}
+```
+
+Имя connection-приложения `id_stand` зарезервировано; такой `create` завершается
+до запуска Pulumi.
 
 Файл:
 
@@ -424,13 +438,25 @@ Connection templates определяются приложениями, но п�
 <OUTPUT__FILE_PATH>/<STAND__USER>_<project>_<env>.json
 ```
 
-содержит реальные значения и создаётся с mode `0600`. Рассматривайте его как
-секрет. File output выполняется только после успешных приложений и hooks.
+содержит ту же структуру с реальными значениями, записанную как обычный
+многострочный JSON с отступами, и создаётся с mode `0600`. Рассматривайте файл
+как секрет. File output выполняется только после успешных приложений и hooks.
 
 Формат самого connection template описан в
 [application guide](application-manifest.md#6-connection-template).
 
 ## 12. Диагностика
+
+Диагностика Pulumi и PyInfra, а также сообщения об ошибках движка отправляются в
+stderr и не смешиваются с NDJSON в stdout. При ошибке результирующая запись не
+печатается.
+
+| Exit code | Значение |
+|---|---|
+| `0` | Успешное выполнение, `--help` или `--version` |
+| `1` | Ошибка конфигурации или выполнения, включая Pulumi, PyInfra и SSH |
+| `2` | Неверные аргументы командной строки |
+| `130` | Выполнение прервано через `Ctrl+C` |
 
 ### Ошибка до Pulumi
 

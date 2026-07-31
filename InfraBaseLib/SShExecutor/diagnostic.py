@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+import sys
 from time import perf_counter
 from typing import Any
 
@@ -146,7 +147,7 @@ class PyinfraDiagnostic(BaseStateCallback):
         if max_retries:
             parts.append(f"max_retries={max_retries}")
 
-        print(" ".join(parts))
+        print(" ".join(parts), file=sys.stderr)
 
     def print_host_summary(self, host_name: str, stats: "PyinfraHostStats", status: str) -> None:
         now = datetime.now().isoformat(timespec="milliseconds")
@@ -167,7 +168,7 @@ class PyinfraDiagnostic(BaseStateCallback):
             f"duration_ms={duration_ms}",
         ]
 
-        print(" ".join(parts))
+        print(" ".join(parts), file=sys.stderr)
         stats.summary_printed = True
 
 
