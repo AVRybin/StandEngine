@@ -1,4 +1,4 @@
-version: 1
+/version: 1
 
 stand:
   project: demo
@@ -32,7 +32,11 @@ apps:
         cpu: 1000
         ram: 3072
         oom_priority: -200
-        hooks: migration
+        hooks:
+          path: migration
+          assets:
+            - source: resource://project-assets/redpanda
+              dest: .
       redpanda-seed-1:
         role: base-seed
         cpu: 3500
@@ -79,7 +83,11 @@ apps:
         cpu: 2000
         ram: 2048
         oom_priority: -300
-        hooks: hook
+        hooks:
+          path: hook
+          assets:
+            - source: resource://project-assets/mongo/migrations
+              dest: migration
       mongo-instance-1:
         role: member
         cpu: 2000

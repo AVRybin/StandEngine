@@ -166,6 +166,7 @@ class ConnectionOutputTests(unittest.TestCase):
             stand.output_file = True
             stand.output_file_directory = output_directory
             stand.state = SimpleNamespace(owner="owner", project="demo", env="test")
+            stand.path_folder_configset = Path("configsets/owner_demo_test")
             stand.build_connections = lambda: connections
 
             console = StringIO()
@@ -173,11 +174,49 @@ class ConnectionOutputTests(unittest.TestCase):
                 stand.output_connections()
 
             console_data = json.loads(console.getvalue())
+            self.assertEqual(console_data["id_stand"], "owner_demo_test")
             self.assertEqual(console_data["redis"]["credentials"]["user"], "admin")
             self.assertEqual(console_data["redis"]["credentials"]["password"], "***")
             self.assertEqual(console_data["redis"]["url"], "***")
-            self.assertEqual(json.loads(output_path.read_text()), connections)
+            self.assertEqual(console.getvalue().count("\n"), 1)
+
+            file_content = output_path.read_text()
+            file_data = json.loads(file_content)
+            self.assertEqual(
+                file_data,
+                {"id_stand": "owner_demo_test", **connections},
+            )
+            self.assertGreater(file_content.count("\n"), 1)
+            self.assertTrue(file_content.startswith("{\n  \"id_stand\""))
+            self.assertTrue(file_content.endswith("\n"))
             self.assertEqual(stat.S_IMODE(output_path.stat().st_mode), 0o600)
+
+    def test_destroy_result_is_one_ndjson_record(self):
+        stand = object.__new__(Stand)
+        stand.path_folder_configset = Path("configsets/owner_demo_test")
+
+        console = StringIO()
+        with redirect_stdout(console):
+            stand.output_destroy_result()
+
+        self.assertEqual(console.getvalue().count("\n"), 1)
+        self.assertEqual(
+            json.loads(console.getvalue()),
+            {
+                "id_stand": "owner_demo_test",
+                "operation": "destroy",
+                "status": "success",
+            },
+        )
+
+    def test_id_stand_connection_name_is_reserved(self):
+        stand = object.__new__(Stand)
+        stand.clusters_app = {
+            "id_stand": SimpleNamespace(connection_template=Path("connection.json.mako"))
+        }
+
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            stand.validate_result_contract()
 
     def test_existing_file_cannot_be_used_as_output_directory(self):
         with TemporaryDirectory() as directory:

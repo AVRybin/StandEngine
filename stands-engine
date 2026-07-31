@@ -3,12 +3,13 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: ./stands-engine [options] <create|destroy> <manifest>
+Usage: ./stands-engine [options] <validate|create|destroy> <manifest>
 
 Options:
   --runtime <docker|podman>  Container runtime (auto-detected by default)
   --image <reference>        OCI image (default: stands-engine:local)
-  --env-file <path>          Environment file passed to the container
+  --env-file <path>          Environment file passed to the container (repeatable)
+  --resource <name=path>     Read-only directory for hook assets (repeatable)
   -h, --help                 Show this help
 
 Environment:
@@ -19,9 +20,13 @@ EOF
 
 runtime="${CONTAINER_RUNTIME:-}"
 image="${STANDS_ENGINE_IMAGE:-stands-engine:local}"
-env_file=""
+env_files=()
+env_file_count=0
 operation=""
 manifest=""
+resource_names=()
+resource_paths=()
+resource_count=0
 
 while (($#)); do
     case "$1" in
@@ -34,14 +39,39 @@ while (($#)); do
             shift 2
             ;;
         --env-file)
-            env_file="${2:?--env-file requires a value}"
+            env_files+=("${2:?--env-file requires a value}")
+            env_file_count=$((env_file_count + 1))
+            shift 2
+            ;;
+        --resource)
+            resource_spec="${2:?--resource requires NAME=PATH}"
+            resource_name="${resource_spec%%=*}"
+            resource_path="${resource_spec#*=}"
+            if [[ "${resource_spec}" != *=* || ! "${resource_name}" =~ ^[A-Za-z][A-Za-z0-9_-]*$ || -z "${resource_path}" ]]; then
+                echo "Invalid resource '${resource_spec}'; expected NAME=PATH with a valid name." >&2
+                exit 2
+            fi
+            for ((index=0; index<resource_count; index++)); do
+                if [[ "${resource_names[$index]}" == "${resource_name}" ]]; then
+                    echo "Resource '${resource_name}' was specified more than once." >&2
+                    exit 2
+                fi
+            done
+            if [[ ! -d "${resource_path}" ]]; then
+                echo "Resource '${resource_name}' is not a directory: ${resource_path}" >&2
+                exit 1
+            fi
+            resolved_resource_path="$(cd "${resource_path}" && pwd -P)"
+            resource_names+=("${resource_name}")
+            resource_paths+=("${resolved_resource_path}")
+            resource_count=$((resource_count + 1))
             shift 2
             ;;
         -h|--help)
             usage
             exit 0
             ;;
-        create|destroy)
+        validate|create|destroy)
             if [[ -n "${operation}" ]]; then
                 echo "Operation was specified more than once." >&2
                 usage >&2
@@ -114,9 +144,6 @@ case "${manifest_dir}" in
         ;;
 esac
 
-data_dir="${cwd}/.stands-engine"
-mkdir -p "${data_dir}/keys" "${data_dir}/configsets" "${data_dir}/output"
-
 run_args=(run --rm)
 if [[ -t 0 && -t 1 ]]; then
     run_args+=(-it)
@@ -130,31 +157,58 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     fi
 fi
 
-if [[ -n "${env_file}" ]]; then
+for ((index=0; index<env_file_count; index++)); do
+    env_file="${env_files[$index]}"
     if [[ ! -f "${env_file}" ]]; then
         echo "Environment file does not exist: ${env_file}" >&2
         exit 1
     fi
     env_file_dir="$(cd "$(dirname "${env_file}")" && pwd -P)"
     run_args+=(--env-file "${env_file_dir}/$(basename "${env_file}")")
-fi
+done
 
 workspace_mount="${workspace}:/workspace:ro"
-data_mount="${data_dir}:/data"
 if [[ "${runtime}" == "podman" && "$(uname -s)" == "Linux" ]]; then
     workspace_mount="${workspace_mount},Z"
-    data_mount="${data_mount}:Z"
 fi
 
-run_args+=(
-    --volume "${workspace_mount}"
-    --volume "${data_mount}"
-    --env STAND__PATH_TO_KEY=/data/keys/id_ed25519
-    --env STAND__PATH_TO_CONFIGSET=/data/configsets
-    --env OUTPUT__FILE_PATH=/data/output
-    "${image}"
-    "${operation}"
-    "${container_manifest}"
-)
+run_args+=(--volume "${workspace_mount}")
+
+if [[ "${operation}" == "validate" ]]; then
+    run_args+=(
+        --env STAND__PATH_TO_KEY=/tmp/stands-engine-validation/id_ed25519
+        --env STAND__PATH_TO_CONFIGSET=/tmp/stands-engine-validation/configsets
+        --env OUTPUT__FILE_PATH=/tmp/stands-engine-validation/output
+    )
+else
+    data_dir="${cwd}/.stands-engine"
+    mkdir -p "${data_dir}/keys" "${data_dir}/configsets" "${data_dir}/output"
+    data_mount="${data_dir}:/data"
+    if [[ "${runtime}" == "podman" && "$(uname -s)" == "Linux" ]]; then
+        data_mount="${data_mount}:Z"
+    fi
+    run_args+=(
+        --volume "${data_mount}"
+        --env STAND__PATH_TO_KEY=/data/keys/id_ed25519
+        --env STAND__PATH_TO_CONFIGSET=/data/configsets
+        --env OUTPUT__FILE_PATH=/data/output
+    )
+fi
+
+for ((index=0; index<resource_count; index++)); do
+    resource_name="${resource_names[$index]}"
+    resource_mount="${resource_paths[$index]}:/resources/${resource_name}:ro"
+    if [[ "${runtime}" == "podman" && "$(uname -s)" == "Linux" ]]; then
+        resource_mount="${resource_mount},Z"
+    fi
+    run_args+=(--volume "${resource_mount}")
+done
+
+run_args+=("${image}")
+for ((index=0; index<resource_count; index++)); do
+    resource_name="${resource_names[$index]}"
+    run_args+=(--resource "${resource_name}=/resources/${resource_name}")
+done
+run_args+=("${operation}" "${container_manifest}")
 
 exec "${runtime}" "${run_args[@]}"

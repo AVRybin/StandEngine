@@ -109,7 +109,7 @@ Pulumi project берётся из `stand.project`, stack — из `stand.env`.
 
 ```bash
 set -a
-source dev.env
+source devBack.env
 set +a
 ```
 
@@ -192,7 +192,7 @@ users:
 настраивает user systemd, linger, Podman socket и сеть `app-net`.
 
 Готовый поддерживаемый шаблон:
-[`demo/cloud-init.yaml.mako`](../demo/cloud-init.yaml.mako).
+[`demo/stand/cloud-init.yaml.mako`](../demo/stand/cloud-init.yaml.mako).
 
 ### Изменения cloud-init
 
@@ -240,21 +240,35 @@ credentials. Структурные secrets остаются обязатель�
 `!secret` не шифрует configsets и connection files. Не публикуйте их в Git,
 логи или незащищённые CI artifacts.
 
-## 6. Статическая проверка
+## 6. Локальная проверка до provision
 
-До provision выполните полный parser:
+Перед каждым `create` движок автоматически выполняет локальный preflight. Ту же
+проверку можно запустить отдельно для разработки и CI:
 
 ```bash
 set -a
-source dev.env
+source devBack.env
 set +a
 
-uv run python -c \
-  'from pathlib import Path; from ManifestParser import parse_manifest; parse_manifest(Path("demo/stand.yml")); print("manifest: OK")'
+uv run stands-engine \
+  --resource project-assets=demo/resources \
+  validate demo/stand/stand.yml
 ```
 
-Команда не создаёт ресурсы. Она проверяет YAML, dependencies, secrets, связи и
-нормализует пути.
+Команда требует те же manifest secrets, что и `create`, но не требует Hetzner и
+S3 credentials. Она не создаёт ресурсы, SSH keys, configsets или connection
+files. При успехе stdout содержит одну NDJSON-запись:
+
+```json
+{"operation":"validate","status":"success"}
+```
+
+Preflight проверяет manifest dependencies и связи, наличие файлов, Mako-render
+cloud-init/application/hook/connection templates, структуру cloud-init и Pod
+YAML, connection JSON contract, upload destinations/modes и конфликты hostPort.
+Для рендера используются зарезервированные тестовые IP; реальные manifest
+preferences и secrets сохраняются, поэтому обнаруживаются ошибки экранирования.
+Независимые ошибки собираются в один отчёт на stderr без вывода secret values.
 
 Дополнительно вручную проверьте:
 
@@ -265,36 +279,44 @@ uv run python -c \
 - доступность registries;
 - возможность записи key/configset/output paths.
 
-Проект пока не предоставляет `preview` или `validate` через CLI, хотя внутренний
-provision layer содержит Pulumi preview.
+Проверка является локальной: доступность Hetzner network/image/server type/SSH
+key, S3 backend, registry и container images не проверяется. Pulumi preview не
+запускается.
 
 ## 7. Запуск
 
 ### Локально
 
 ```bash
-uv run stands-engine create demo/stand.yml
-uv run stands-engine destroy demo/stand.yml
+uv run stands-engine --resource project-assets=demo/resources create demo/stand/stand.yml
+uv run stands-engine destroy demo/stand/stand.yml
 ```
 
 Совместимый вариант:
 
 ```bash
-python main.py create demo/stand.yml
+python main.py --resource project-assets=demo/resources create demo/stand/stand.yml
 ```
 
 CLI принимает только:
 
 ```text
-stands-engine <create|destroy> <manifest>
+stands-engine [--resource NAME=PATH] <validate|create|destroy> <manifest>
 ```
 
 ### Через container launcher
 
 ```bash
-./stands-engine --env-file dev.env create demo/stand.yml
-./stands-engine --env-file dev.env destroy demo/stand.yml
+./stands-engine \
+  --env-file common.env \
+  --env-file stands/devBack.env \
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
+./stands-engine --env-file common.env --env-file stands/devBack.env destroy demo/stand/stand.yml
 ```
+
+`--env-file` можно повторять: файлы загружаются слева направо, и значения из
+последующих файлов переопределяют значения из предыдущих.
 
 Явный runtime/image:
 
@@ -302,8 +324,9 @@ stands-engine <create|destroy> <manifest>
 ./stands-engine \
   --runtime docker \
   --image registry.example.test/stands-engine:0.1.0 \
-  --env-file dev.env \
-  create demo/stand.yml
+  --env-file devBack.env \
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
 ```
 
 Launcher:
@@ -320,8 +343,8 @@ Launcher:
 PowerShell:
 
 ```powershell
-.\stands-engine.ps1 create .\demo\stand.yml -EnvFile dev.env
-.\stands-engine.ps1 destroy .\demo\stand.yml -EnvFile dev.env
+.\stands-engine.ps1 create .\demo\stand.yml -EnvFile common.env,stands\dev.env
+.\stands-engine.ps1 destroy .\demo\stand.yml -EnvFile common.env,stands\dev.env
 ```
 
 ## 8. Lifecycle `create`
@@ -330,8 +353,8 @@ PowerShell:
 
 1. Загрузка внешней конфигурации.
 2. Parsing manifest, dependencies и secrets.
-3. Validation и сборка модели; разворачивание agents.
-4. Выбор/создание Pulumi stack в S3 backend.
+3. Validation, сборка модели, разворачивание agents и полный локальный preflight.
+4. Только после успешного preflight — выбор/создание Pulumi stack в S3 backend.
 5. Создание Hetzner servers, attachment к network, cloud-init и labels.
 6. Получение public/private IP и подготовка SSH inventory.
 7. Локальный рендеринг templates и hook assets.
@@ -339,11 +362,13 @@ PowerShell:
 9. Настройка Podman, firewalld, app user systemd, socket и `app-net`.
 10. Registry login, параллельный pull images и logout.
 11. Загрузка templates.
-12. Генерация Podlet units и запуск user services.
-13. Ожидание active service и каждого role port: до 30 попыток с интервалом
-    2 секунды.
-14. Выполнение post-start hooks.
-15. Рендеринг и публикация connection output.
+12. Последовательное развёртывание инстансов в порядке верхнеуровневого `apps`,
+    затем `instances` внутри приложения. Для каждого инстанса движок генерирует
+    Podlet unit и запускает user service, ожидает active service и каждый role
+    port (до 30 попыток с интервалом 2 секунды), выполняет post-start hook и
+    только затем переходит к следующему инстансу. Порядок `nodes.<node>.apps`
+    задаёт размещение и на эту последовательность не влияет.
+13. Рендеринг и публикация connection output.
 
 Движок проверяет service/listen socket, но не HTTP readiness и не dependency
 graph. Hooks сложных кластеров должны иметь собственный retry/timeout.
@@ -359,7 +384,7 @@ AWS-compatible variables. Hetzner token записывается в stack config
 ## 9. Lifecycle `destroy`
 
 ```bash
-uv run stands-engine destroy demo/stand.yml
+uv run stands-engine destroy demo/stand/stand.yml
 ```
 
 `destroy`:
@@ -368,6 +393,8 @@ uv run stands-engine destroy demo/stand.yml
 2. Допускает неразрешённые app/registry secrets.
 3. Выбирает существующий Pulumi stack.
 4. Выполняет `pulumi destroy`.
+5. После успешного удаления печатает NDJSON-запись с `id_stand`,
+   `operation: "destroy"` и `status: "success"`.
 
 Команда не удаляет локальные SSH keys, configsets, connection files, S3 stack
 metadata или bucket.
@@ -405,14 +432,26 @@ Connection templates определяются приложениями, но п�
 
 | Переменная | Default | Поведение |
 |---|---|---|
-| `OUTPUT__CONSOLE` | `true` | Печатает общий JSON после успешного create |
+| `OUTPUT__CONSOLE` | `true` | Печатает одну NDJSON-запись после успешного create |
 | `OUTPUT__CONSOLE_SECRETS` | `false` | Показывает настоящие password и URL |
-| `OUTPUT__FILE` | `false` | Сохраняет полный JSON |
+| `OUTPUT__FILE` | `false` | Сохраняет полный форматированный JSON |
 | `OUTPUT__FILE_PATH` | — | Каталог, обязательный при file output |
 
 Консоль по умолчанию заменяет `credentials.password` и `url` на `***`.
 Дополнительные secret-подобные поля внутри `credentials` автоматически не
 маскируются.
+
+Во время `create`/`destroy` stdout содержит только компактные NDJSON-результаты —
+по одному JSON-объекту на строку. Для `create` первым полем идёт `id_stand`,
+равный имени configset-каталога, а connection-приложения остаются
+верхнеуровневыми полями:
+
+```json
+{"id_stand":"owner_demo_test","redis":{"endpoint":"10.0.0.2","port":6379,"credentials":{"user":"admin","password":"***"},"url":"***"}}
+```
+
+Имя connection-приложения `id_stand` зарезервировано; такой `create` завершается
+до запуска Pulumi.
 
 Файл:
 
@@ -420,13 +459,25 @@ Connection templates определяются приложениями, но п�
 <OUTPUT__FILE_PATH>/<STAND__USER>_<project>_<env>.json
 ```
 
-содержит реальные значения и создаётся с mode `0600`. Рассматривайте его как
-секрет. File output выполняется только после успешных приложений и hooks.
+содержит ту же структуру с реальными значениями, записанную как обычный
+многострочный JSON с отступами, и создаётся с mode `0600`. Рассматривайте файл
+как секрет. File output выполняется только после успешных приложений и hooks.
 
 Формат самого connection template описан в
 [application guide](application-manifest.md#6-connection-template).
 
 ## 12. Диагностика
+
+Диагностика Pulumi и PyInfra, а также сообщения об ошибках движка отправляются в
+stderr и не смешиваются с NDJSON в stdout. При ошибке результирующая запись не
+печатается.
+
+| Exit code | Значение |
+|---|---|
+| `0` | Успешное выполнение, `--help` или `--version` |
+| `1` | Ошибка конфигурации или выполнения, включая Pulumi, PyInfra и SSH |
+| `2` | Неверные аргументы командной строки |
+| `130` | Выполнение прервано через `Ctrl+C` |
 
 ### Ошибка до Pulumi
 
@@ -436,7 +487,7 @@ Connection templates определяются приложениями, но п�
 - путь/расширение manifest;
 - `from_dep_manifest` и локальные ресурсы;
 - список отсутствующих `SECRET_*`;
-- статический parser.
+- отчёт `stands-engine validate`.
 
 ### Pulumi/S3
 
@@ -473,7 +524,7 @@ ss -ltn
 
 ## Checklist перед `create`
 
-- [ ] Manifest прошёл статический parser.
+- [ ] `stands-engine validate` завершился успешно с актуальными secrets.
 - [ ] Проверено количество и стоимость Hetzner servers.
 - [ ] Token, network, SSH key, locations, images и server types существуют.
 - [ ] S3 backend доступен и сохранены identity/passphrase.

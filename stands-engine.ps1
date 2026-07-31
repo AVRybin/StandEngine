@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet("create", "destroy")]
+    [ValidateSet("validate", "create", "destroy")]
     [string]$Operation,
 
     [Parameter(Mandatory = $true, Position = 1)]
@@ -12,7 +12,9 @@ param(
 
     [string]$Image = $(if ($env:STANDS_ENGINE_IMAGE) { $env:STANDS_ENGINE_IMAGE } else { "stands-engine:local" }),
 
-    [string]$EnvFile
+    [string[]]$EnvFile = @(),
+
+    [string[]]$Resource = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,27 +49,65 @@ else {
     $containerManifest = "/workspace/" + (Split-Path -Leaf $manifestPath)
 }
 
-$dataDirectory = Join-Path $currentDirectory ".stands-engine"
-@("keys", "configsets", "output") | ForEach-Object {
-    New-Item -ItemType Directory -Force -Path (Join-Path $dataDirectory $_) | Out-Null
-}
-
 $runArgs = @("run", "--rm")
-if ($EnvFile) {
-    $resolvedEnvFile = (Resolve-Path -LiteralPath $EnvFile).Path
+foreach ($envFilePath in $EnvFile) {
+    if (-not (Test-Path -LiteralPath $envFilePath -PathType Leaf)) {
+        throw "Environment file does not exist: $envFilePath"
+    }
+    $resolvedEnvFile = (Resolve-Path -LiteralPath $envFilePath).Path
     $runArgs += @("--env-file", $resolvedEnvFile)
 }
 
-$runArgs += @(
-    "--volume", "${workspace}:/workspace:ro",
-    "--volume", "${dataDirectory}:/data",
-    "--env", "STAND__PATH_TO_KEY=/data/keys/id_ed25519",
-    "--env", "STAND__PATH_TO_CONFIGSET=/data/configsets",
-    "--env", "OUTPUT__FILE_PATH=/data/output",
-    $Image,
-    $Operation,
-    $containerManifest
-)
+$resourceNames = @{}
+$resolvedResources = @()
+foreach ($resourceSpec in $Resource) {
+    $parts = $resourceSpec.Split('=', 2)
+    if ($parts.Count -ne 2 -or $parts[0] -notmatch '^[A-Za-z][A-Za-z0-9_-]*$' -or -not $parts[1]) {
+        throw "Invalid resource '$resourceSpec'; expected NAME=PATH with a valid name."
+    }
+
+    $resourceName = $parts[0]
+    if ($resourceNames.ContainsKey($resourceName)) {
+        throw "Resource '$resourceName' was specified more than once."
+    }
+
+    $resourcePath = (Resolve-Path -LiteralPath $parts[1]).Path
+    if (-not (Test-Path -LiteralPath $resourcePath -PathType Container)) {
+        throw "Resource '$resourceName' is not a directory: $resourcePath"
+    }
+    $resourceNames[$resourceName] = $true
+    $resolvedResources += [PSCustomObject]@{ Name = $resourceName; Path = $resourcePath }
+}
+
+$runArgs += @("--volume", "${workspace}:/workspace:ro")
+if ($Operation -eq "validate") {
+    $runArgs += @(
+        "--env", "STAND__PATH_TO_KEY=/tmp/stands-engine-validation/id_ed25519",
+        "--env", "STAND__PATH_TO_CONFIGSET=/tmp/stands-engine-validation/configsets",
+        "--env", "OUTPUT__FILE_PATH=/tmp/stands-engine-validation/output"
+    )
+}
+else {
+    $dataDirectory = Join-Path $currentDirectory ".stands-engine"
+    @("keys", "configsets", "output") | ForEach-Object {
+        New-Item -ItemType Directory -Force -Path (Join-Path $dataDirectory $_) | Out-Null
+    }
+    $runArgs += @(
+        "--volume", "${dataDirectory}:/data",
+        "--env", "STAND__PATH_TO_KEY=/data/keys/id_ed25519",
+        "--env", "STAND__PATH_TO_CONFIGSET=/data/configsets",
+        "--env", "OUTPUT__FILE_PATH=/data/output"
+    )
+}
+
+$engineArgs = @()
+foreach ($resource in $resolvedResources) {
+    $containerResourcePath = "/resources/$($resource.Name)"
+    $runArgs += @("--volume", "$($resource.Path):${containerResourcePath}:ro")
+    $engineArgs += @("--resource", "$($resource.Name)=${containerResourcePath}")
+}
+
+$runArgs += @($Image) + $engineArgs + @($Operation, $containerManifest)
 
 & $Runtime @runArgs
 exit $LASTEXITCODE

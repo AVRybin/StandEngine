@@ -129,6 +129,7 @@ class AppResourceBuildAndRenderTests(unittest.TestCase):
         template_path = (
             Path(__file__).parents[1]
             / "demo"
+            / "stand"
             / "app-registry"
             / "redis"
             / "redis-instance.yml.mako"
@@ -169,7 +170,7 @@ class AppResourceBuildAndRenderTests(unittest.TestCase):
                 )
 
     def test_all_demo_pod_templates_use_instance_resources(self):
-        registry_path = Path(__file__).parents[1] / "demo" / "app-registry"
+        registry_path = Path(__file__).parents[1] / "demo" / "stand" / "app-registry"
         template_paths = (
             registry_path / "redis" / "redis-instance.yml.mako",
             registry_path / "redpanda" / "redpanda-instance.yml.mako",
@@ -190,6 +191,7 @@ class AppResourceBuildAndRenderTests(unittest.TestCase):
         template_path = (
             Path(__file__).parents[1]
             / "demo"
+            / "stand"
             / "app-registry"
             / "dozzle"
             / "dozzle-instance.yml.mako"

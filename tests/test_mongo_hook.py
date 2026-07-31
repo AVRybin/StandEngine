@@ -13,7 +13,9 @@ from mako.template import Template
 from App import App, ClusterApp, RoleApp
 
 
-REGISTRY_PATH = Path(__file__).parents[1] / "demo" / "app-registry" / "mongo"
+REGISTRY_PATH = (
+    Path(__file__).parents[1] / "demo" / "stand" / "app-registry" / "mongo"
+)
 HOOK_TEMPLATE = REGISTRY_PATH / "hook" / "hook.sh.mako"
 POD_TEMPLATE = REGISTRY_PATH / "mongo-instance.yml.mako"
 

@@ -219,13 +219,43 @@ stand-specific preferences не следует одновременно объя
 | `ram` | Обязательный положительный integer в десятичных MB |
 | `oom_priority` | Необязательный integer `-1000..1000` |
 | `preferences` | Необязательный mapping параметров инстанса |
-| `hooks` | Необязательный путь к каталогу hook |
+| `hooks` | Необязательный путь либо конфигурация hook и внешних assets |
 
 Имена инстансов глобальны для всего стенда, включая разные приложения. Повтор
 запрещён.
 
 Относительный `hooks` разрешается от манифеста, в котором поле объявлено. Если
 поле находится в `stand.yml`, путь указывайте относительно `stand.yml`.
+
+Для переиспользуемого hook и миграций из прикладного проекта используется
+расширенная форма:
+
+```yaml
+instances:
+  mongo-main:
+    role: member
+    cpu: 1000
+    ram: 2048
+    hooks:
+      path: hook
+      assets:
+        - source: resource://project-assets/mongo/migrations
+          dest: migration
+```
+
+`path` задаёт базовый hook с обязательным `hook.sh.mako`. Каждый `source` должен
+указывать на каталог, а `dest` — на безопасный относительный POSIX-каталог внутри
+hook. Значение `.` добавляет файлы в корень hook. Содержимое assets копируется как
+есть и не обрабатывается Mako.
+
+Именованный корень передаётся одинаково launcher-у и локальному CLI:
+
+```bash
+./stands-engine --resource project-assets=/path/to/project/assets create stand.yml
+uv run stands-engine --resource project-assets=/path/to/project/assets create stand.yml
+```
+
+При `destroy` подключать resources не требуется.
 
 ### Connection instance
 
@@ -283,7 +313,23 @@ Overrides заменяют соответствующие значения вы�
 - agent-инстанс нельзя размещать вручную;
 - node должна ссылаться на существующий profile.
 
-Порядок `nodes` и `apps` не является dependency graph приложений.
+### Порядок развёртывания
+
+Порядок развёртывания является частью контракта манифеста. Движок обрабатывает
+приложения сверху вниз в порядке ключей верхнеуровневого mapping `apps`, а внутри
+каждого приложения — сверху вниз в порядке ключей `instances`.
+
+Для каждого инстанса движок последовательно генерирует и запускает systemd unit,
+дожидается состояния active и прослушивания всех портов роли, затем выполняет
+hook, если он задан. Только после успешного завершения этих действий начинается
+развёртывание следующего инстанса. Поэтому изменение порядка `apps` или
+`instances` в YAML изменяет порядок развёртывания.
+
+Список `nodes.<node>.apps` задаёт только размещение инстансов. Порядок элементов в
+нём и порядок самих `nodes` на порядок развёртывания не влияют. Движок не строит
+dependency graph и не проверяет прикладную готовность: если следующему приложению
+нужна более сильная гарантия, чем active service и открытые порты, её следует
+реализовать retry/timeout-логикой приложения или hook.
 
 ## 8. `agents`
 
@@ -313,6 +359,10 @@ dozzle--worker
 
 Эти имена становятся фактическими `instance.name`, ключами Mako `apps`,
 service/container names и частями configset.
+
+Agent-инстансы развёртываются на позиции соответствующего приложения в
+верхнеуровневом `apps`. Внутри него сгенерированные инстансы идут после обычных
+инстансов этого приложения и следуют порядку `nodes`.
 
 Ограничения:
 
@@ -377,7 +427,7 @@ key или для list/mapping. Подставленное значение вс
 
 ## 11. Полный пример
 
-Полный актуальный пример находится в [`demo/stand.yml`](../demo/stand.yml). Он
+Полный актуальный пример находится в [`demo/stand/stand.yml`](../demo/stand/stand.yml). Он
 показывает:
 
 - общий node profile;
@@ -394,19 +444,22 @@ names, credentials и размеры серверов.
 
 ## Проверка манифеста
 
-Отдельной CLI-команды `validate` пока нет. Выполните parser напрямую:
+Для полной локальной проверки выполните:
 
 ```bash
 set -a
-source dev.env
+source devBack.env
 set +a
 
-uv run python -c \
-  'from pathlib import Path; from ManifestParser import parse_manifest; parse_manifest(Path("demo/stand.yml")); print("manifest: OK")'
+uv run stands-engine \
+  --resource project-assets=demo/resources \
+  validate demo/stand/stand.yml
 ```
 
-Это раскрывает dependencies, разрешает secrets, нормализует пути и проверяет
-связи, но не создаёт облачные ресурсы.
+Команда раскрывает dependencies, разрешает secrets, нормализует пути, проверяет
+связи и локально рендерит cloud-init, app, hook и connection Mako templates. Она
+не создаёт облачные ресурсы, ключи или configsets и не требует Hetzner/S3
+credentials.
 
 Валидатор проверяет:
 
@@ -418,6 +471,8 @@ uv run python -c \
 - глобальную уникальность инстансов;
 - profiles и размещение;
 - agents и конфликты генерируемых имён;
+- существование templates, Mako render и структуру результирующих YAML/JSON;
+- upload paths/modes и конфликты hostPort на одном узле;
 - обязательные secrets.
 
 После проверки YAML отдельно убедитесь, что provider resources реально

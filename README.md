@@ -89,7 +89,12 @@ uv sync
 
 ```bash
 uv run stands-engine --help
-uv run stands-engine create demo/stand.yml
+uv run stands-engine \
+  --resource project-assets=demo/resources \
+  validate demo/stand/stand.yml
+uv run stands-engine \
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
 ```
 
 Прежний вариант `python main.py ...` остается совместимым.
@@ -109,8 +114,44 @@ podman build -f Containerfile -t stands-engine:local .
 Для повседневного запуска используйте launcher. Он автоматически выберет Podman или Docker, примонтирует текущий каталог только для чтения и сохранит ключи, configsets и connection output в `.stands-engine/`:
 
 ```bash
-./stands-engine --env-file dev.env create demo/stand.yml
-./stands-engine --env-file dev.env destroy demo/stand.yml
+./stands-engine \
+  --env-file common.env \
+  --env-file stands/devBack.env \
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
+./stands-engine --env-file common.env --env-file stands/devBack.env destroy demo/stand/stand.yml
+```
+
+`--env-file` можно повторять. Файлы применяются слева направо, поэтому значения
+из более позднего файла переопределяют одноимённые значения из предыдущих. Это
+позволяет хранить общие настройки отдельно от настроек конкретного стенда.
+
+Каталоги из других репозиториев подключаются как именованные read-only resources.
+Один resource можно использовать для нескольких hooks, указывая подкаталоги
+относительно его корня:
+
+```bash
+./stands-engine \
+  --env-file devBack.env \
+  --resource project-assets=/home/user/projects/payment-service/deploy/assets \
+  create demo/stand/stand.yml
+```
+
+Манифест обращается к такому каталогу через переносимый URI
+`resource://project-assets/...`; launcher сам заменяет host path на путь внутри
+контейнера. `--resource` можно повторять. При прямом запуске Python CLI синтаксис
+тот же, но каталог читается непосредственно с host filesystem:
+
+```text
+project-assets/
+├── mongo/migrations/*.json
+└── redpanda/acl-map.sh
+```
+
+```bash
+uv run stands-engine \
+  --resource project-assets=/home/user/projects/payment-service/deploy/assets \
+  create demo/stand/stand.yml
 ```
 
 Явный выбор runtime или опубликованного image:
@@ -119,15 +160,25 @@ podman build -f Containerfile -t stands-engine:local .
 ./stands-engine \
   --runtime docker \
   --image registry.example.com/stands-engine:0.1.0 \
-  --env-file dev.env \
-  create demo/stand.yml
+  --env-file devBack.env \
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
 ```
 
 PowerShell на Windows, macOS или Linux:
 
 ```powershell
-.\stands-engine.ps1 create .\demo\stand.yml -EnvFile dev.env
-.\stands-engine.ps1 destroy .\demo\stand.yml -EnvFile dev.env
+.\stands-engine.ps1 create .\demo\stand\stand.yml -EnvFile dev.env `
+  -Resource "project-assets=.\demo\resources"
+.\stands-engine.ps1 destroy .\demo\stand\stand.yml -EnvFile dev.env
+```
+
+Несколько файлов в PowerShell передаются массивом в том же порядке приоритета:
+
+```powershell
+.\stands-engine.ps1 create .\demo\stand\stand.yml `
+  -EnvFile common.env,stands\dev.env `
+  -Resource "project-assets=.\demo\resources"
 ```
 
 Launcher переопределяет локальные абсолютные пути из env-файла контейнерными:
@@ -138,20 +189,22 @@ STAND__PATH_TO_CONFIGSET=/data/configsets
 OUTPUT__FILE_PATH=/data/output
 ```
 
-Сам `dev.env`, другие `*.env`, приватные ключи, `.git` и локальные результаты исключены из build context и не копируются в image.
+Сам `devBack.env`, другие `*.env`, приватные ключи, `.git` и локальные результаты исключены из build context и не копируются в image.
 
 ### Запуск без launcher
 
 ```bash
 docker run --rm \
-  --env-file dev.env \
+  --env-file devBack.env \
   -e STAND__PATH_TO_KEY=/data/keys/id_ed25519 \
   -e STAND__PATH_TO_CONFIGSET=/data/configsets \
   -e OUTPUT__FILE_PATH=/data/output \
   -v "$PWD:/workspace:ro" \
   -v "$PWD/.stands-engine:/data" \
+  -v "$PWD/demo/resources:/resources/project-assets:ro" \
   registry.example.com/stands-engine:0.1.0 \
-  create /workspace/demo/stand.yml
+  --resource project-assets=/resources/project-assets \
+  create /workspace/demo/stand/stand.yml
 ```
 
 В CI передавайте секреты через защищенные переменные pipeline. Для воспроизводимого запуска используйте version tag или digest, а не изменяемый `latest`.
@@ -188,9 +241,9 @@ OUTPUT__FILE_PATH=
 - `STAND__PASSPHRASE` - passphrase для Pulumi secrets provider.
 - `STAND__PATH_TO_KEY` - путь к приватному ключу стенда. Если файла нет, Stands Engine создаст ключ и сохранит его туда.
 - `STAND__PATH_TO_CONFIGSET` - локальный каталог для отрендеренных конфигов приложений и хуков.
-- `OUTPUT__CONSOLE` - печатать итоговый JSON с данными подключения после успешного `create`; по умолчанию `true`.
+- `OUTPUT__CONSOLE` - печатать итоговую NDJSON-запись с данными подключения после успешного `create`; по умолчанию `true`.
 - `OUTPUT__CONSOLE_SECRETS` - показывать настоящие password и URL в консоли; по умолчанию они заменяются на `***`.
-- `OUTPUT__FILE` - сохранять полный JSON с данными подключения в файл; по умолчанию `false`.
+- `OUTPUT__FILE` - сохранять полный форматированный JSON с данными подключения в файл; по умолчанию `false`.
 - `OUTPUT__FILE_PATH` - каталог для итогового JSON. Обязателен, если `OUTPUT__FILE=true`.
 
 ### Секреты манифеста
@@ -215,7 +268,7 @@ export SECRET_REDIS_ADMIN_PASSWORD='change-me'
 
 ```bash
 set -a
-source dev.env
+source devBack.env
 set +a
 ```
 
@@ -223,26 +276,30 @@ set +a
 
 ## Быстрый старт
 
-Демо-стенд находится в [demo/stand.yml](demo/stand.yml). Он поднимает Redpanda, Kafka UI, Redis и MongoDB на трех серверах и использует публичные Docker Hub образы.
+Демо разделено на описание стенда в [demo/stand](demo/stand) и подключаемые
+данные в [demo/resources](demo/resources). Стенд поднимает Redpanda, Kafka UI,
+Redis и MongoDB на трёх серверах и использует публичные Docker Hub образы.
 
 ```bash
 set -a
-source dev.env
+source devBack.env
 set +a
 
-python main.py create demo/stand.yml
+python main.py \
+  --resource project-assets=demo/resources \
+  create demo/stand/stand.yml
 ```
 
 Удаление стенда:
 
 ```bash
-python main.py destroy demo/stand.yml
+python main.py destroy demo/stand/stand.yml
 ```
 
 CLI сейчас намеренно небольшой:
 
 ```bash
-python main.py <create|destroy> <path_to_stand_manifest>
+python main.py [--resource NAME=PATH] <validate|create|destroy> <path_to_stand_manifest>
 ```
 
 ## Манифест стенда
@@ -398,7 +455,21 @@ import json
 
 Шаблон получает тот же контекст `node`, `instance`, `role`, `cluster` и `apps`, что и шаблоны запуска. Результатом должен быть один JSON-объект с непустыми `endpoint`, `credentials.user`, `credentials.password` и портом от `1` до `65535`. Поле `url` необязательно; внутри `credentials` можно добавлять параметры приложения.
 
-После успешного запуска всех приложений и hooks Stands Engine объединяет результаты по именам приложений. Консольный результат по умолчанию маскирует password и весь URL. Файловый результат всегда содержит реальные значения, создаётся с правами `0600` и поэтому должен храниться как секрет. Имя файла формируется как `<user>_<project>_<env>.json` внутри `OUTPUT__FILE_PATH`, по тому же правилу, что и имя каталога configset.
+После успешного запуска всех приложений и hooks Stands Engine объединяет результаты по именам приложений и печатает одну компактную NDJSON-запись. Поле `id_stand` совпадает с именем каталога configset: `<user>_<project>_<env>`. Например:
+
+```json
+{"id_stand":"owner_demo_test","redis":{"endpoint":"10.0.0.2","port":6379,"credentials":{"user":"admin","password":"***"},"url":"***"}}
+```
+
+Консольный результат по умолчанию маскирует password и весь URL. Файловый результат использует ту же структуру, но записывается как форматированный обычный JSON, всегда содержит реальные значения и создаётся с правами `0600`, поэтому должен храниться как секрет. Имя файла формируется как `<user>_<project>_<env>.json` внутри `OUTPUT__FILE_PATH`.
+
+Успешный `destroy` печатает отдельную запись:
+
+```json
+{"id_stand":"owner_demo_test","operation":"destroy","status":"success"}
+```
+
+Во время `validate`/`create`/`destroy` stdout зарезервирован для NDJSON-результатов. Успешный `validate` печатает `{"operation":"validate","status":"success"}`. Диагностика preflight, Pulumi, PyInfra и сообщения об ошибках отправляются в stderr. Коды завершения: `0` — успех, `1` — ошибка конфигурации или выполнения, `2` — неверный CLI-вызов, `130` — прерывание `Ctrl+C`. При ошибке stdout остаётся пустым.
 
 Mako-шаблоны получают контекст:
 
@@ -408,7 +479,7 @@ Mako-шаблоны получают контекст:
 - `cluster` - приложение/кластер, образ и общие preferences;
 - `apps` - все инстансы стенда, чтобы сервисы могли ссылаться друг на друга.
 
-Если у инстанса указан `hooks`, путь должен вести в директорию с `hook.sh.mako`. Все файлы директории рендерятся, загружаются на сервер и `hook.sh` запускается после старта контейнера.
+Если у инстанса указан `hooks`, путь должен вести в директорию с `hook.sh.mako`. Файлы с суффиксом `.mako` рендерятся, остальные копируются без изменений; затем всё дерево загружается на сервер и `hook.sh` запускается после старта контейнера.
 
 ## Проверка манифеста
 

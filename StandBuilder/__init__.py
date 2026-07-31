@@ -1,6 +1,6 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from App import App, ClusterApp, ConfigFile, RoleApp
+from App import App, ClusterApp, ConfigFile, HookAsset, RoleApp
 from ShellCollect import Image, ImageRegistry, Port
 from StandFramework import Node, Stand, StandState
 from config.config import Config
@@ -107,13 +107,23 @@ def _build_cluster(
     instances = []
     instances_by_name = {}
     for instance_name, instance_data in app_data["instances"].items():
+        hooks = instance_data.get("hooks")
+        hook_path = hooks if isinstance(hooks, str) else hooks.get("path") if hooks else None
+        hook_assets = hooks.get("assets", []) if isinstance(hooks, dict) else []
         instance = App(
             name=instance_name,
             role=roles[instance_data["role"]],
             cpu=instance_data["cpu"],
             ram=instance_data["ram"],
             oom_priority=instance_data.get("oom_priority"),
-            hook_path=Path(instance_data["hooks"]) if "hooks" in instance_data else None,
+            hook_path=Path(hook_path) if hook_path is not None else None,
+            hook_assets=[
+                HookAsset(
+                    source=Path(asset["source"]),
+                    dest=PurePosixPath(asset["dest"]),
+                )
+                for asset in hook_assets
+            ],
             preferences=instance_data.get("preferences", {}),
         )
         instances.append(instance)

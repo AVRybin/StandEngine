@@ -395,8 +395,7 @@ url = f"redis://{quote(user, safe='')}:{quote(password, safe='')}@{endpoint}:637
 ```text
 bootstrap/
 ├── hook.sh.mako
-└── migration/
-    └── initial.json.mako
+└── helpers.sh
 ```
 
 Путь подключается к конкретному инстансу через `instances.<name>.hooks`.
@@ -404,14 +403,33 @@ bootstrap/
 
 Движок:
 
-1. Рекурсивно рендерит каждый файл как Mako-текст.
-2. Удаляет суффикс `.mako`.
+1. Рекурсивно обрабатывает файлы: файлы с суффиксом `.mako` рендерит как
+   Mako-текст, остальные копирует без изменений.
+2. Удаляет суффикс `.mako` только у отрендеренных файлов.
 3. Загружает дерево в `/home/<app-user>/hook/<instance>/` с mode `644`.
 4. Выполняет `hook.sh` из корня дерева.
 5. После успеха удаляет remote-каталог.
 
-Не помещайте бинарные файлы: все ресурсы читаются как текст. Даже файл без
-`.mako` проходит renderer.
+Обычные, в том числе бинарные, ресурсы можно помещать в hook-каталог без
+суффикса `.mako`: движок сохраняет их имена и содержимое без изменений.
+
+Stand-specific миграции необязательно хранить рядом с переиспользуемым hook.
+Их можно подключить из прикладного проекта:
+
+```yaml
+hooks:
+  path: hook
+  assets:
+    - source: resource://project-assets/mongo/migrations
+      dest: migration
+```
+
+Resource задаётся при запуске через
+`--resource project-assets=/path/to/application/assets`. Один корень может
+обслуживать assets нескольких hooks. Движок рекурсивно добавляет
+содержимое `source` в `dest`. Внешние assets всегда копируются буквально, включая
+файлы с суффиксом `.mako`, и не могут перезаписывать файлы базового hook или
+другого asset.
 
 Надёжный hook должен:
 
@@ -421,21 +439,19 @@ bootstrap/
 - не печатать секреты;
 - использовать относительные пути от корня hook.
 
-Примеры: [`mongo/hook`](../demo/app-registry/mongo/hook) и
-[`redpanda/migration`](../demo/app-registry/redpanda/migration).
+Примеры: [`mongo/hook`](../demo/stand/app-registry/mongo/hook) и
+[`redpanda/migration`](../demo/stand/app-registry/redpanda/migration).
 
 ## 8. Проверка приложения
 
 До реального стенда:
 
-1. Отрендерите каждый Mako-шаблон с тестовыми `node`, `instance`, `role`,
-   `cluster`, `apps`.
-2. Разберите pod через `yaml.safe_load`.
-3. Проверьте image, имена, resources, volumes и ports.
-4. Разберите connection через `json.loads` и проверьте контракт.
-5. Проверьте hook повторным выполнением.
-6. Подключите приложение к минимальному тестовому `stand.yml` и выполните
-   статическую проверку из [stand guide](stand-manifest.md#проверка-манифеста).
+1. Подключите приложение к минимальному тестовому `stand.yml` и выполните
+   `stands-engine validate` из [stand guide](stand-manifest.md#проверка-манифеста).
+2. Проверьте в отрендерованном Pod image, имена, resources, volumes и ports,
+   специфичные для приложения.
+3. Отдельно протестируйте фактическое выполнение hook и поведение приложения —
+   локальный preflight проверяет Mako render, но не исполняет shell-команды.
 
 Подход к unit-тесту рендеринга показан в
 [`tests/test_app_resources.py`](../tests/test_app_resources.py).
@@ -470,6 +486,6 @@ bootstrap/
 - [ ] Все templates успешно рендерятся и разбираются.
 
 Готовые эталоны находятся в
-[`demo/app-registry`](../demo/app-registry): Redis — простой stateful service,
+[`demo/stand/app-registry`](../demo/stand/app-registry): Redis — простой stateful service,
 Redpanda — несколько ролей, Kafka UI — зависимость, MongoDB — hook и connection,
 Dozzle — node agent.

@@ -1,7 +1,13 @@
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from ShellCollect import ShellCommand, Port, Image, ShellCollect
+
+@dataclass(kw_only=True, frozen=True)
+class HookAsset:
+    source: Path
+    dest: PurePosixPath
+
 
 @dataclass(kw_only=True)
 class App:
@@ -11,6 +17,7 @@ class App:
     ram: int
     oom_priority: int | None = None
     hook_path: Path | None = None
+    hook_assets: list[HookAsset] = field(default_factory=list)
     preferences: dict[str, str] = field(default_factory=dict)
 
 @dataclass(kw_only=True)

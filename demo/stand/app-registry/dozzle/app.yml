@@ -2,8 +2,8 @@ version: 1
 name: dozzle
 
 image:
-  registry: docker
-  path: amir20/dozzle
+  registry: local
+  path: infra_depence/amir20/dozzle
   version: v10.6.11
 
 roles:

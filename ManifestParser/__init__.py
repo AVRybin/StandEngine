@@ -11,6 +11,9 @@ from ManifestParser.validation import validate_manifest
 SECRET_TAG = "!secret"
 SECRET_ENV_PREFIX = "SECRET_"
 SECRET_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+RESOURCE_URI_PATTERN = re.compile(
+    r"^resource://(?P<name>[A-Za-z][A-Za-z0-9_-]*)(?:/(?P<path>.*))?$"
+)
 
 
 class SecretReference(str):
@@ -76,12 +79,21 @@ def parse_yml(path_to_yml: Path) -> dict:
     return data
 
 
-def parse_manifest(path_to_manifest: Path, operation: str = "create") -> dict:
+def parse_manifest(
+    path_to_manifest: Path,
+    operation: str = "create",
+    resource_roots: dict[str, Path] | None = None,
+) -> dict:
     if operation not in {"create", "destroy"}:
         raise ValueError("Manifest operation must be 'create' or 'destroy'")
 
     data = parse_yml(path_to_manifest)
-    resolved_data = _resolve_dep_manifests(data, path_to_manifest)
+    resolved_data = _resolve_dep_manifests(
+        data,
+        path_to_manifest,
+        resource_roots or {},
+        require_resources=operation == "create",
+    )
     resolved_data = _resolve_secrets(resolved_data, operation)
     _normalize_local_resource_paths(resolved_data, path_to_manifest.parent)
     validate_manifest(resolved_data)
@@ -148,9 +160,26 @@ def _is_optional_destroy_secret(path: str) -> bool:
     return ".preferences." in path or path.endswith(".preferences")
 
 
-def _resolve_dep_manifests(data: dict, manifest_path: Path) -> dict:
+def _resolve_dep_manifests(
+    data: dict,
+    manifest_path: Path,
+    resource_roots: dict[str, Path] | None = None,
+    require_resources: bool = True,
+) -> dict:
+    resource_roots = resource_roots or {}
+    _normalize_declared_hook_asset_paths(
+        data,
+        manifest_path.parent,
+        resource_roots,
+        require_resources,
+    )
     resolved = {
-        key: _resolve_value(value, manifest_path)
+        key: _resolve_value(
+            value,
+            manifest_path,
+            resource_roots,
+            require_resources,
+        )
         for key, value in data.items()
         if key != "from_dep_manifest"
     }
@@ -174,7 +203,12 @@ def _resolve_dep_manifests(data: dict, manifest_path: Path) -> dict:
 
     dep_manifest_path = _resolve_path(dep_manifest, manifest_path.parent)
     dep_data = parse_yml(dep_manifest_path)
-    resolved_dep_data = _resolve_dep_manifests(dep_data, dep_manifest_path)
+    resolved_dep_data = _resolve_dep_manifests(
+        dep_data,
+        dep_manifest_path,
+        resource_roots,
+        require_resources,
+    )
 
     conflicting_keys = {
         key
@@ -191,14 +225,32 @@ def _resolve_dep_manifests(data: dict, manifest_path: Path) -> dict:
     return merged
 
 
-def _resolve_value(value, current_manifest_path: Path):
+def _resolve_value(
+    value,
+    current_manifest_path: Path,
+    resource_roots: dict[str, Path],
+    require_resources: bool,
+):
     if isinstance(value, dict):
-        resolved = _resolve_dep_manifests(value, current_manifest_path)
+        resolved = _resolve_dep_manifests(
+            value,
+            current_manifest_path,
+            resource_roots,
+            require_resources,
+        )
         _normalize_local_resource_paths(resolved, current_manifest_path.parent)
         return resolved
 
     if isinstance(value, list):
-        return [_resolve_value(item, current_manifest_path) for item in value]
+        return [
+            _resolve_value(
+                item,
+                current_manifest_path,
+                resource_roots,
+                require_resources,
+            )
+            for item in value
+        ]
 
     return value
 
@@ -225,8 +277,13 @@ def _normalize_template_hook_and_connection_paths(data: dict, base_dir: Path) ->
     instances = data.get("instances")
     if isinstance(instances, dict):
         for instance in instances.values():
-            if isinstance(instance, dict) and isinstance(instance.get("hooks"), str):
-                instance["hooks"] = str(_resolve_path(instance["hooks"], base_dir).resolve())
+            if not isinstance(instance, dict):
+                continue
+            hooks = instance.get("hooks")
+            if isinstance(hooks, str):
+                instance["hooks"] = str(_resolve_path(hooks, base_dir).resolve())
+            elif isinstance(hooks, dict) and isinstance(hooks.get("path"), str):
+                hooks["path"] = str(_resolve_path(hooks["path"], base_dir).resolve())
 
     if isinstance(data.get("connection"), str):
         data["connection"] = str(_resolve_path(data["connection"], base_dir).resolve())
@@ -240,3 +297,68 @@ def _normalize_local_resource_paths(data: dict, base_dir: Path) -> None:
                 profile["cloud-init"] = str(_resolve_path(profile["cloud-init"], base_dir).resolve())
 
     _normalize_template_hook_and_connection_paths(data, base_dir)
+
+
+def _normalize_declared_hook_asset_paths(
+    data: dict,
+    base_dir: Path,
+    resource_roots: dict[str, Path],
+    require_resources: bool,
+) -> None:
+    app_candidates = []
+    if isinstance(data.get("apps"), dict):
+        app_candidates.extend(data["apps"].values())
+    if isinstance(data.get("instances"), dict):
+        app_candidates.append(data)
+
+    for app in app_candidates:
+        if not isinstance(app, dict) or not isinstance(app.get("instances"), dict):
+            continue
+        for instance in app["instances"].values():
+            if not isinstance(instance, dict):
+                continue
+            hooks = instance.get("hooks")
+            if not isinstance(hooks, dict) or not isinstance(hooks.get("assets"), list):
+                continue
+            for asset in hooks["assets"]:
+                if not isinstance(asset, dict) or not isinstance(asset.get("source"), str):
+                    continue
+                asset["source"] = _resolve_hook_asset_source(
+                    asset["source"],
+                    base_dir,
+                    resource_roots,
+                    require_resources,
+                )
+
+
+def _resolve_hook_asset_source(
+    source: str,
+    base_dir: Path,
+    resource_roots: dict[str, Path],
+    require_resources: bool,
+) -> str:
+    match = RESOURCE_URI_PATTERN.fullmatch(source)
+    if source.startswith("resource://") and match is None:
+        raise ValueError(f"Invalid resource URI: {source!r}")
+
+    if match is None:
+        return str(_resolve_path(source, base_dir).resolve())
+
+    resource_name = match.group("name")
+    resource_root = resource_roots.get(resource_name)
+    if resource_root is None:
+        if not require_resources:
+            return source
+        raise ValueError(
+            f"Hook asset references unknown resource {resource_name!r}: {source}"
+        )
+
+    relative = Path(match.group("path") or ".")
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"Resource path must not escape its root: {source}")
+
+    root = resource_root.resolve()
+    resolved = (root / relative).resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError(f"Resource path escapes its root: {source}")
+    return str(resolved)

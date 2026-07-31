@@ -13,7 +13,9 @@ from mako.template import Template
 from App import App, ClusterApp, RoleApp
 
 
-REGISTRY_PATH = Path(__file__).parents[1] / "demo" / "app-registry" / "redpanda"
+REGISTRY_PATH = (
+    Path(__file__).parents[1] / "demo" / "stand" / "app-registry" / "redpanda"
+)
 HOOK_TEMPLATE = REGISTRY_PATH / "migration" / "hook.sh.mako"
 CONFIG_MAP = """\
 declare -A TOPICS=(

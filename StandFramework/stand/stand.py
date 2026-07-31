@@ -15,6 +15,7 @@ from InfraBaseLib.SShExecutor import InfraOperation, UploadAsset, SShExecutorDia
 from ShellCollect import ShellCollect, Port, Image, ImageRegistry
 from App import ClusterApp, App
 from StandFramework import ConfigBackend, StandState
+from config.errors import load_settings
 
 
 @dataclass(kw_only=True)
@@ -73,7 +74,7 @@ class Stand:
     state: StandState
     path_folder_configset: Path
     
-    provision: MetalProvision = field(init=False)
+    provision: MetalProvision | None = field(init=False, default=None)
     void_provision: Callable[[], None] = field(init=False)
     inventory: dict[str, list[str]] = field(default_factory=dict, init=False)
     node_groups: dict[str, str] = field(default_factory=dict, init=False)
@@ -87,6 +88,7 @@ class Stand:
     instance_apps: dict[str, InstanceApp] = field(default_factory=dict, init=False)
     _registries: dict[str, ImageRegistry] = field(default_factory=dict, init=False)
     _connection_templates: dict[str, Template] = field(default_factory=dict, init=False)
+    _preflight_validated: bool = field(default=False, init=False)
 
     output_console: bool = True
     output_console_secrets: bool = False
@@ -99,21 +101,7 @@ class Stand:
         self.instance_apps = {}
         self.key = Keys(private=private_key)
 
-        if self.backend is None:
-            self.backend = ConfigBackend()
-        
-        self.provision = MetalProvision(
-            s3_bucket=self.backend.s3.bucket,
-            s3_region=self.backend.s3.region,
-            s3_endpoint=self.backend.s3.endpoint,
-            passphrase=self.state.passphrase,
-            s3_access_key=self.backend.s3.access_key,
-            s3_secret_key=self.backend.s3.secret_key,
-            stand_name=self.state.env,
-            project_name=self.state.project,
-            user_name=self.state.owner,
-            provider_token=self.backend.hcloud.token,
-        )
+        self.provision = None
 
         self.clusters_app = {cluster.name: cluster for cluster in clusters}
 
@@ -124,19 +112,6 @@ class Stand:
                 raise ValueError(f"Registry {registry.url} has conflicting configuration")
 
             self._registries[registry.url] = registry
-
-            if cluster.connection_template is not None:
-                template_path = cluster.connection_template
-                if not template_path.is_file():
-                    raise ValueError(
-                        f"Connection template for app {cluster_name!r} does not exist: {template_path}"
-                    )
-                try:
-                    self._connection_templates[cluster_name] = Template(filename=str(template_path))
-                except Exception as exc:
-                    raise ValueError(
-                        f"Invalid connection template for app {cluster_name!r}: {template_path}: {exc}"
-                    ) from exc
 
             for instance in cluster.instances_app:
                 self.instance_apps[instance.name] = InstanceApp(
@@ -172,6 +147,25 @@ class Stand:
 
         self.void_provision = designer.get_program(servers_for_provision)
 
+    def ensure_provision(self) -> MetalProvision:
+        if self.provision is not None:
+            return self.provision
+        if self.backend is None:
+            self.backend = load_settings(ConfigBackend)
+        self.provision = MetalProvision(
+            s3_bucket=self.backend.s3.bucket,
+            s3_region=self.backend.s3.region,
+            s3_endpoint=self.backend.s3.endpoint,
+            passphrase=self.state.passphrase,
+            s3_access_key=self.backend.s3.access_key,
+            s3_secret_key=self.backend.s3.secret_key,
+            stand_name=self.state.env,
+            project_name=self.state.project,
+            user_name=self.state.owner,
+            provider_token=self.backend.hcloud.token,
+        )
+        return self.provision
+
     def build_node_labels(self, node: Node) -> dict[str, str]:
         labels = {
             "stand_name": self.sanitize_label_value(self.state.env),
@@ -195,10 +189,10 @@ class Stand:
 
 
     def destroy(self) -> None:
-        self.provision.destroy(self.void_provision)
+        self.ensure_provision().destroy(self.void_provision)
 
     def create_servers(self) -> None:
-        result = self.provision.create(self.void_provision)
+        result = self.ensure_provision().create(self.void_provision)
 
         for name, node in self.nodes.items():
             public_ip = result.outputs.get(f"server_{name}_public_ip")
@@ -318,7 +312,10 @@ class Stand:
             raise ValueError(f"App {cluster.name!r} has no connection_instance")
 
         instance = self.instance_apps[instance_name]
-        template = self._connection_templates[cluster.name]
+        template = self._connection_templates.get(cluster.name)
+        if template is None:
+            template = Template(filename=str(cluster.connection_template))
+            self._connection_templates[cluster.name] = template
         try:
             rendered = template.render(
                 node=instance.node,
@@ -383,6 +380,15 @@ class Stand:
             if cluster.connection_template is not None
         }
 
+    @property
+    def id_stand(self) -> str:
+        return Path(self.path_folder_configset).name
+
+    def validate_result_contract(self) -> None:
+        cluster = self.clusters_app.get("id_stand")
+        if cluster is not None and cluster.connection_template is not None:
+            raise ValueError("Connection app name 'id_stand' is reserved for result output")
+
     @staticmethod
     def mask_connections(connections: dict[str, dict]) -> dict[str, dict]:
         masked = deepcopy(connections)
@@ -393,8 +399,12 @@ class Stand:
         return masked
 
     @staticmethod
-    def connections_json(connections: dict[str, dict]) -> str:
-        return json.dumps(connections, ensure_ascii=False, indent=2) + "\n"
+    def result_ndjson(result: dict) -> str:
+        return json.dumps(result, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+    @staticmethod
+    def result_json(result: dict) -> str:
+        return json.dumps(result, ensure_ascii=False, indent=2) + "\n"
 
     def output_connections(self) -> None:
         if not self.output_console and not self.output_file:
@@ -405,7 +415,8 @@ class Stand:
             console_connections = (
                 connections if self.output_console_secrets else self.mask_connections(connections)
             )
-            print(self.connections_json(console_connections), end="")
+            console_result = {"id_stand": self.id_stand, **console_connections}
+            print(self.result_ndjson(console_result), end="")
 
         if self.output_file:
             if self.output_file_directory is None:
@@ -413,9 +424,7 @@ class Stand:
             if self.output_file_directory.exists() and not self.output_file_directory.is_dir():
                 raise ValueError("OUTPUT__FILE_PATH must point to a directory")
             self.output_file_directory.mkdir(parents=True, exist_ok=True)
-            output_file_path = self.output_file_directory / (
-                f"{self.state.owner}_{self.state.project}_{self.state.env}.json"
-            )
+            output_file_path = self.output_file_directory / f"{self.id_stand}.json"
             descriptor = os.open(
                 output_file_path,
                 os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
@@ -423,7 +432,15 @@ class Stand:
             )
             os.fchmod(descriptor, 0o600)
             with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-                output.write(self.connections_json(connections))
+                output.write(self.result_json({"id_stand": self.id_stand, **connections}))
+
+    def output_destroy_result(self) -> None:
+        result = {
+            "id_stand": self.id_stand,
+            "operation": "destroy",
+            "status": "success",
+        }
+        print(self.result_ndjson(result), end="")
 
     def render_deploy_configset(self) -> None:
         Path(self.path_folder_configset).mkdir(parents=True, exist_ok=True)
@@ -449,29 +466,25 @@ class Stand:
         if instance.app.hook_path is None:
             return
 
-        hook_path = Path(instance.app.hook_path)
-        if not hook_path.is_dir():
-            raise Exception(f"Hook path is not a directory: {hook_path}")
-
-        hook_sh = hook_path / "hook.sh.mako"
-        if not hook_sh.is_file():
-            raise Exception(f"Hook path must contain hook.sh.mako: {hook_sh}")
+        hook_files = self._collect_hook_files(instance)
 
         for_group = instance.cluster.name + "---" + instance.app.name
         remote_hook_dir = f"/home/{self.app_user}/hook/{instance.app.name}"
         local_hook_dir = Path(self.path_folder_configset / f"{instance.cluster.name}--{instance.app.name}" / "hook")
         Path(local_hook_dir).mkdir(parents=True, exist_ok=True)
 
-        for template_path in sorted(path for path in hook_path.rglob("*") if path.is_file()):
-            relative_path = template_path.relative_to(hook_path)
-            if relative_path.name.endswith(".mako"):
-                relative_path = relative_path.with_name(relative_path.name.removesuffix(".mako"))
-
-            content = self.render_app_template(template_path, instance)
+        for template_path, relative_path, is_mako_template in hook_files:
+            content = (
+                self.render_app_template(template_path, instance)
+                if is_mako_template
+                else template_path.read_bytes()
+            )
             output_path = local_hook_dir / relative_path
             Path(output_path.parent).mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w") as f:
-                f.write(content)
+            if isinstance(content, str):
+                output_path.write_text(content, encoding="utf-8")
+            else:
+                output_path.write_bytes(content)
 
             self.add_upload_asset(instance, UploadAsset(
                 content=content,
@@ -488,6 +501,64 @@ class Stand:
             sudo=True,
             full_login=True,
         ))
+
+    def validate_hook_sources(self) -> None:
+        for instance in self.instance_apps.values():
+            if instance.app.hook_path is not None:
+                self._collect_hook_files(instance)
+
+    def validate_preflight(self) -> None:
+        from StandFramework.preflight import StandPreflightValidator
+
+        StandPreflightValidator(self).validate()
+        self._preflight_validated = True
+
+    @staticmethod
+    def _collect_hook_files(instance: InstanceApp) -> list[tuple[Path, Path, bool]]:
+        hook_path = Path(instance.app.hook_path)
+        if not hook_path.is_dir():
+            raise ValueError(f"Hook path is not a directory: {hook_path}")
+
+        hook_sh = hook_path / "hook.sh.mako"
+        if not hook_sh.is_file():
+            raise ValueError(f"Hook path must contain hook.sh.mako: {hook_sh}")
+
+        collected: list[tuple[Path, Path, bool]] = []
+        destinations: dict[Path, Path] = {}
+
+        def add_tree(source_root: Path, destination_root: Path, render_mako: bool) -> None:
+            if not source_root.is_dir():
+                raise ValueError(f"Hook asset source is not a directory: {source_root}")
+
+            resolved_root = source_root.resolve()
+            for source_path in sorted(path for path in source_root.rglob("*") if path.is_file()):
+                resolved_source = source_path.resolve()
+                if not resolved_source.is_relative_to(resolved_root):
+                    raise ValueError(
+                        f"Hook asset path escapes its source directory: {source_path}"
+                    )
+
+                relative_path = source_path.relative_to(source_root)
+                is_mako_template = render_mako and relative_path.suffix == ".mako"
+                if is_mako_template:
+                    relative_path = relative_path.with_name(
+                        relative_path.name.removesuffix(".mako")
+                    )
+                output_path = destination_root / relative_path
+                if output_path in destinations:
+                    raise ValueError(
+                        f"Hook file collision for instance {instance.app.name!r} at "
+                        f"{output_path.as_posix()}: {destinations[output_path]} and {source_path}"
+                    )
+                destinations[output_path] = source_path
+                collected.append((source_path, output_path, is_mako_template))
+
+        add_tree(hook_path, Path(), render_mako=True)
+        for asset in instance.app.hook_assets:
+            destination = Path(*asset.dest.parts)
+            add_tree(asset.source, destination, render_mako=False)
+
+        return sorted(collected, key=lambda item: item[1].as_posix())
 
     def launch_apps(self) -> None:
         for _, instance in self.instance_apps.items():
@@ -509,6 +580,8 @@ class Stand:
             self.add_app_hook(instance)
 
     def up(self, diagnostic: bool | SShExecutorDiagnostArgs = False):
+        if not getattr(self, "_preflight_validated", False):
+            self.validate_preflight()
         self.create_servers()
         self.render_deploy_configset()
         self.settings_runtime()

@@ -28,8 +28,8 @@ RUN uv sync --locked --no-dev --no-editable
 FROM python:3.14-slim-bookworm AS runtime
 
 ARG TARGETARCH
-ARG PULUMI_VERSION=3.253.0
-ARG PULUMI_HCLOUD_VERSION=1.39.1
+ARG PULUMI_VERSION=3.255.0
+ARG PULUMI_HCLOUD_VERSION=1.41.0
 
 ENV PATH="/opt/stands-engine/.venv/bin:/usr/local/bin:${PATH}" \
     PULUMI_HOME=/tmp/.pulumi \

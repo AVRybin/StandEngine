@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import sys
 from urllib.parse import urlencode
 from typing import Optional
 from pulumi import automation as auto
@@ -86,7 +87,7 @@ class MetalProvision:
         op = getattr(metadata, "op", "<op>")
         urn = getattr(metadata, "urn", None)
         name = self.resource_name_from_urn(urn)
-        print(f"[pulumi] {prefix}{op}: {resource_type}::{name}")
+        print(f"[pulumi] {prefix}{op}: {resource_type}::{name}", file=sys.stderr)
 
 
 
@@ -95,18 +96,18 @@ class MetalProvision:
             if event.resource_pre_event:
                 meta = event.resource_pre_event.metadata
                 if meta.op != "same":
-                    print(f"[DIFF] {meta.urn}")
-                    print(f"  op: {meta.op}")
-                    print(f"  diffs: {getattr(meta, 'diffs', None)}")
-                    print(f"  detailed_diff: {getattr(meta, 'detailed_diff', None)}")
-                    print(f"  olds keys: {list(getattr(meta, 'olds', {}).keys())}")
-                    print(f"  news keys: {list(getattr(meta, 'news', {}).keys())}")
+                    print(f"[DIFF] {meta.urn}", file=sys.stderr)
+                    print(f"  op: {meta.op}", file=sys.stderr)
+                    print(f"  diffs: {getattr(meta, 'diffs', None)}", file=sys.stderr)
+                    print(f"  detailed_diff: {getattr(meta, 'detailed_diff', None)}", file=sys.stderr)
+                    print(f"  olds keys: {list(getattr(meta, 'olds', {}).keys())}", file=sys.stderr)
+                    print(f"  news keys: {list(getattr(meta, 'news', {}).keys())}", file=sys.stderr)
             if event.diagnostic_event:
                 diag = event.diagnostic_event
                 severity = getattr(diag, "severity", None)
                 message = getattr(diag, "message", "")
                 if severity in ("error", "warning"):
-                    print(f"[pulumi:{severity}] {message.strip()}")
+                    print(f"[pulumi:{severity}] {message.strip()}", file=sys.stderr)
 
             if event.resource_pre_event:
                 self._log_resource_event(event.resource_pre_event.metadata)
@@ -123,9 +124,9 @@ class MetalProvision:
 
             if event.summary_event:
                 changes = getattr(event.summary_event, "resource_changes", None)
-                print(f"[pulumi] summary: {changes}")
+                print(f"[pulumi] summary: {changes}", file=sys.stderr)
         except Exception as exc:
-            print(f"[pulumi:event-handler-warning] {exc}")
+            print(f"[pulumi:event-handler-warning] {exc}", file=sys.stderr)
 
     def init_stack(self, server_program: Callable[[], None]) -> None:
         self.ensure_pulumi_cli_installed()
